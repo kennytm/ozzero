@@ -1,1 +1,8 @@
 target/
+*.swp
+*.swo
+*.ozf
+*.so*
+*.exe
+*.o
+
