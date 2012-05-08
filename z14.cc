@@ -48,17 +48,107 @@ namespace Ozzero {
 //------------------------------------------------------------------------------
 //{{{ Versioning
 
-/** {ZN.version ?Major ?Minor ?Patch} */
-OZ_BI_define(ozzero_version, 0, 3)
+/** {ZN.version ?VersionRC} */
+OZ_BI_define(ozzero_version, 0, 1)
 {
     int major, minor, patch;
     zmq_version(&major, &minor, &patch);
-    return
-	(OZ_out(0) = OZ_int(major)) &&
-	(OZ_out(1) = OZ_int(minor)) &&
-	(OZ_out(2) = OZ_int(patch));
+
+    OZ_Term props[] = {
+        OZ_pairAI("major", major),
+        OZ_pairAI("minor", minor),
+        OZ_pairAI("patch", patch),
+    };
+    OZ_Term prop_list = OZ_toList(sizeof(props)/sizeof(*props), props);
+    OZ_RETURN(OZ_recordInitC("version", prop_list));
 }
 OZ_BI_end
+
+/** Get an option value using the method (object->*getter). The type is
+determined using the type 'type_term' at the position 'type_pos' in the
+function. The return value will be put into 'ret_term'. */
+template <typename T>
+static inline OZ_Return get_opt_common(int type_pos, OZ_Term type_term,
+                                       int opt_name, OZ_Term& ret_term,
+                                       T* object, int (T::*getter)(int, void*, size_t*))
+{
+    if (OZ_isAtom(type_term))
+    {
+        const char* type = OZ_atomToC(type_term);
+
+        #define READ_PRIMITIVE(TYPE) \
+            if (strcmp(type, #TYPE) == 0) \
+            { \
+                TYPE##_t retval; \
+                size_t length = sizeof(retval); \
+                while ((object->*getter)(opt_name, &retval, &length)) \
+                    RETURN_RAISE_ERROR_OR_RETRY; \
+                ret_term = OZ_##TYPE(retval); \
+                return OZ_ENTAILED; \
+            }
+
+        typedef int int_t;
+
+        #define OZ_uint32 OZ_uint64
+
+        READ_PRIMITIVE(int)
+        READ_PRIMITIVE(int64)
+        READ_PRIMITIVE(uint64)
+        READ_PRIMITIVE(uint32)
+
+        #undef OZ_uint32
+        #undef READ_PRIMITIVE
+    }
+    else if (OZ_isInt(type_term))
+    {
+        size_t buffer_length = OZ_intToC(type_term);
+        std::vector<char> buffer (buffer_length);
+        while ((object->*getter)(opt_name, buffer.data(), &buffer_length))
+            RETURN_RAISE_ERROR_OR_RETRY;
+        ret_term = OZ_mkByteString(buffer.data(), buffer_length);
+        return OZ_ENTAILED;
+    }
+
+    return OZ_typeError(type_pos, "an integer or the atom 'int', 'int64' or 'uint64'");
+}
+
+template <typename T>
+static inline OZ_Return set_opt_common(int type_pos, OZ_Term type_term,
+                                       int opt_name, OZ_Term input_term,
+                                       T* object, int (T::*setter)(int, const void*, size_t))
+{
+    if (OZ_isAtom(type_term))
+    {
+        const char* type = OZ_atomToC(type_term);
+
+        #define WRITE_PRIMITIVE(TYPE) \
+            if (strcmp(type, #TYPE) == 0) \
+            { \
+                TYPE##_t value = OZ_intToC##TYPE(input_term); \
+                while ((object->*setter)(opt_name, &value, sizeof(value))) \
+                    RETURN_RAISE_ERROR_OR_RETRY; \
+                return OZ_ENTAILED; \
+            }
+
+        typedef int int_t;
+        #define OZ_intToCint OZ_intToC
+        #define OZ_intToCuint32 (uint32_t)OZ_intToCulong
+
+        WRITE_PRIMITIVE(int)
+        WRITE_PRIMITIVE(int64)
+        WRITE_PRIMITIVE(uint64)
+        WRITE_PRIMITIVE(uint32)
+
+        #undef WRITE_PRIMITIVE
+        #undef OZ_intToCuint32
+        #undef OZ_intToCint
+    }
+
+    ByteString* bs = tagged2ByteString(input_term);
+    while ((object->*setter)(opt_name, bs->getData(), bs->getSize()))
+        RETURN_RAISE_ERROR_OR_RETRY;
+    return OZ_ENTAILED;
+}
 
 //}}}
 //------------------------------------------------------------------------------
@@ -108,7 +198,9 @@ OZ_BI_end
 OZ_BI_define(ozzero_term, 1, 0)
 {
     OZ_declare(Context, 0, context);
-    return checked(context->close());
+    while (context->close())
+        RETURN_RAISE_ERROR_OR_RETRY;
+    return OZ_ENTAILED;
 }
 OZ_BI_end
 
@@ -292,19 +384,19 @@ OZ_BI_define(ozzero_msg_set_data, 2, 0)
 }
 OZ_BI_end
 
-/** {ZN.getmsgopt_int +Message +Name ?Int} */
-OZ_BI_define(ozzero_getmsgopt_int, 2, 1)
+/** {ZN.getmsgopt_int +Message +OptA +TypeA ?Term} */
+OZ_BI_define(ozzero_getmsgopt, 3, 1)
 {
     OZ_declare(Message, 0, msg);
-    OZ_declareInt(1, name);
     ENSURE_VALID(Message, msg);
 
-    int value;
-    size_t length = sizeof(value);
-    if (msg->getmsgopt(name, &value, &length))
-        return raise_error();
-    else
-        OZ_RETURN_INT(value);
+    OZ_declareAtom(1, name);
+    if (strcmp(name, "more") != 0)
+        return OZ_typeError(1, "message option");
+
+    OZ_declareDetTerm(2, type_term);
+    return get_opt_common(2, type_term, ZMQ_MORE, OZ_out(0),
+                          msg, &Message::getmsgopt);
 }
 OZ_BI_end
 
@@ -365,14 +457,39 @@ public:
 
 };
 
-/** {ZN.socket +Context +IntType ?Socket} */
+static inline int decode_socket_type(const char* type)
+{
+    if (strcmp(type, "pair") == 0) return ZMQ_PAIR;
+    if (strcmp(type, "pub") == 0) return ZMQ_PUB;
+    if (strcmp(type, "sub") == 0) return ZMQ_SUB;
+    if (strcmp(type, "req") == 0) return ZMQ_REQ;
+    if (strcmp(type, "rep") == 0) return ZMQ_REP;
+    if (strcmp(type, "xreq") == 0) return ZMQ_XREQ;
+    if (strcmp(type, "xrep") == 0) return ZMQ_XREP;
+    if (strcmp(type, "pull") == 0) return ZMQ_PULL;
+    if (strcmp(type, "push") == 0) return ZMQ_PUSH;
+#if ZMQ_VERSION_MAJOR >= 3
+    if (strcmp(type, "xpub") == 0) return ZMQ_XPUB;
+    if (strcmp(type, "xsub") == 0) return ZMQ_XSUB;
+#endif
+    if (strcmp(type, "router") == 0) return ZMQ_ROUTER;
+    if (strcmp(type, "dealer") == 0) return ZMQ_DEALER;
+
+    return -1;
+}
+
+/** {ZN.socket +Context +TypeA ?Socket} */
 OZ_BI_define(ozzero_socket, 2, 1)
 {
     OZ_declare(Context, 0, context);
-    OZ_declareInt(1, type);
     ENSURE_VALID(Context, context);
 
-    void* socket = context->socket(type);
+    OZ_declareAtom(1, type);
+    int real_type = decode_socket_type(type);
+    if (real_type < 0)
+        return OZ_typeError(1, "socket type");
+
+    void* socket = context->socket(real_type);
     if (socket == NULL)
         return raise_error();
     else
@@ -388,118 +505,85 @@ OZ_BI_define(ozzero_close, 1, 0)
 }
 OZ_BI_end
 
-/** {ZN.setsockopt +Socket +IntName +ByteString} */
-OZ_BI_define(ozzero_setsockopt, 3, 0)
+static inline int decode_sockopt(const char* optname)
+{
+#if ZMQ_VERSION_MAJOR >= 3
+    if (strcmp(optname, "sndhwm") == 0) return ZMQ_SNDHWM;
+    if (strcmp(optname, "rcvhwm") == 0) return ZMQ_RCVHWM;
+    if (strcmp(optname, "recoveryIvl") == 0) return ZMQ_RECOVERY_IVL;
+    if (strcmp(optname, "recoveryIvlMsec") == 0) return ZMQ_RECOVERY_IVL;
+    if (strcmp(optname, "ipv4only") == 0) return ZMQ_IPV4ONLY;
+    if (strcmp(optname, "multicastHops") == 0) return ZMQ_MULTICAST_HOPS;
+#else
+    if (strcmp(optname, "sndhwm") == 0) return ZMQ_HWM;
+    if (strcmp(optname, "rcvhwm") == 0) return ZMQ_HWM;
+    if (strcmp(optname, "hwm") == 0) return ZMQ_HWM;
+    if (strcmp(optname, "swap") == 0) return ZMQ_SWAP;
+    if (strcmp(optname, "recoveryIvl") == 0) return ZMQ_RECOVERY_IVL;
+    if (strcmp(optname, "recoveryIvlMsec") == 0) return ZMQ_RECOVERY_IVL_MSEC;
+    if (strcmp(optname, "mcastLoop") == 0) return ZMQ_MCAST_LOOP;
+#endif
+    if (strcmp(optname, "affinity") == 0) return ZMQ_AFFINITY;
+    if (strcmp(optname, "identity") == 0) return ZMQ_IDENTITY;
+    if (strcmp(optname, "subscribe") == 0) return ZMQ_SUBSCRIBE;
+    if (strcmp(optname, "unsubscribe") == 0) return ZMQ_UNSUBSCRIBE;
+    if (strcmp(optname, "rate") == 0) return ZMQ_RATE;
+    if (strcmp(optname, "sndbuf") == 0) return ZMQ_SNDBUF;
+    if (strcmp(optname, "rcvbuf") == 0) return ZMQ_RCVBUF;
+    if (strcmp(optname, "rcvmore") == 0) return ZMQ_RCVMORE;
+    if (strcmp(optname, "fd") == 0) return ZMQ_FD;
+    if (strcmp(optname, "events") == 0) return ZMQ_EVENTS;
+    if (strcmp(optname, "type") == 0) return ZMQ_TYPE;
+    if (strcmp(optname, "linger") == 0) return ZMQ_LINGER;
+    if (strcmp(optname, "reconnectIvl") == 0) return ZMQ_RECOVERY_IVL;
+    if (strcmp(optname, "backlog") == 0) return ZMQ_BACKLOG;
+    if (strcmp(optname, "reconnectIvlMax") == 0) return ZMQ_RECONNECT_IVL_MAX;
+    if (strcmp(optname, "maxmsgsize") == 0) return ZMQ_MAXMSGSIZE;
+    if (strcmp(optname, "rcvtimeo") == 0) return ZMQ_RCVTIMEO;
+    if (strcmp(optname, "sndtimeo") == 0) return ZMQ_SNDTIMEO;
+
+    return -1;
+}
+
+/** {ZN.setsockopt +Socket +OptA +TypeA +Term}
+
+where TypeA should be one of 'int', 'int64', 'uint64' or other things (which
+will be interpreted as 'byteString').
+*/
+OZ_BI_define(ozzero_setsockopt, 4, 0)
 {
     OZ_declare(Socket, 0, socket);
     ENSURE_VALID(Socket, socket);
-    OZ_declareInt(1, name);
-    OZ_declareByteString(2, value);
-    return checked(socket->setsockopt(name, value->getData(), value->getSize()));
+    OZ_declareAtom(1, name);
+    int real_name = decode_sockopt(name);
+    if (real_name < 0)
+        return OZ_typeError(1, "socket option");
+    OZ_declareDetTerm(2, type_term);
+    return set_opt_common(2, type_term, real_name, OZ_in(3),
+                          socket, &Socket::setsockopt);
 }
 OZ_BI_end
 
-/** {ZN.setsockopt_int +Socket +IntName +Int} */
-OZ_BI_define(ozzero_setsockopt_int, 3, 0)
-{
-    OZ_declare(Socket, 0, socket);
-    ENSURE_VALID(Socket, socket);
-    OZ_declareInt(1, name);
-    OZ_declareInt(2, value);
-    return checked(socket->setsockopt(name, &value, sizeof(value)));
-}
-OZ_BI_end
+/** {ZN.getsockopt +Socket +OptA +TypeA ?Term}
 
-/** {ZN.setsockopt_int64 +Socket +IntName +Int64} */
-OZ_BI_define(ozzero_setsockopt_int64, 3, 0)
-{
-    OZ_declare(Socket, 0, socket);
-    ENSURE_VALID(Socket, socket);
-    OZ_declareInt(1, name);
-    OZ_declareDetTerm(2, term);
-    int64_t value = OZ_intToCint64(term);
-    return checked(socket->setsockopt(name, &value, sizeof(value)));
-}
-OZ_BI_end
-
-/** {ZN.setsockopt_uint64 +Socket +IntName +UInt64} */
-OZ_BI_define(ozzero_setsockopt_uint64, 3, 0)
-{
-    OZ_declare(Socket, 0, socket);
-    ENSURE_VALID(Socket, socket);
-    OZ_declareInt(1, name);
-    OZ_declareDetTerm(2, term);
-    uint64_t value = OZ_intToCuint64(term);
-    return checked(socket->setsockopt(name, &value, sizeof(value)));
-}
-OZ_BI_end
-
-/** {ZN.getsockopt +Socket +IntName +MaxLength ?ByteString} */
+where TypeA should be one of 'int', 'int64', 'uint64' or an integer (which will
+be interpreted as a 'byteString' with a maximum length).
+*/
 OZ_BI_define(ozzero_getsockopt, 3, 1)
 {
     OZ_declare(Socket, 0, socket);
     ENSURE_VALID(Socket, socket);
-    OZ_declareInt(1, name);
-    OZ_declareInt(2, max_length);
-
-    size_t buffer_length = max_length;
-    std::vector<char> buffer (buffer_length);
-    if (socket->getsockopt(name, buffer.data(), &buffer_length))
-        return raise_error();
-    else
-        OZ_RETURN(OZ_mkByteString(buffer.data(), buffer_length));
+    OZ_declareAtom(1, name);
+    int real_name = decode_sockopt(name);
+    if (real_name < 0)
+        return OZ_typeError(1, "socket option");
+    OZ_declareDetTerm(2, type_term);
+    return get_opt_common(2, type_term, real_name, OZ_out(0),
+                          socket, &Socket::getsockopt);
 }
 OZ_BI_end
 
-/** {ZN.getsockopt_int +Socket +IntName ?Int} */
-OZ_BI_define(ozzero_getsockopt_int, 2, 1)
-{
-    OZ_declare(Socket, 0, socket);
-    ENSURE_VALID(Socket, socket);
-    OZ_declareInt(1, name);
-
-    int retval;
-    size_t length = sizeof(retval);
-    if (socket->getsockopt(name, &retval, &length))
-        return raise_error();
-    else
-        OZ_RETURN_INT(retval);
-
-
-}
-OZ_BI_end
-
-/** {ZN.getsockopt_int64 +Socket +IntName ?BigInt} */
-OZ_BI_define(ozzero_getsockopt_int64, 2, 1)
-{
-    OZ_declare(Socket, 0, socket);
-    ENSURE_VALID(Socket, socket);
-    OZ_declareInt(1, name);
-
-    int64_t retval;
-    size_t length = sizeof(retval);
-    if (socket->getsockopt(name, &retval, &length))
-        return raise_error();
-    else
-        OZ_RETURN(OZ_int64(retval));
-}
-OZ_BI_end
-
-/** {ZN.getsockopt_uint64 +Socket +IntName ?BigInt} */
-OZ_BI_define(ozzero_getsockopt_uint64, 2, 1)
-{
-    OZ_declare(Socket, 0, socket);
-    ENSURE_VALID(Socket, socket);
-    OZ_declareInt(1, name);
-
-    uint64_t retval;
-    size_t length = sizeof(retval);
-    if (socket->getsockopt(name, &retval, &length))
-        return raise_error();
-    else
-        OZ_RETURN(OZ_uint64(retval));
-}
-OZ_BI_end
+#undef GET_SET_SOCK_COMMON
 
 /** {ZN.bind +Socket +AddrVS} */
 OZ_BI_define(ozzero_bind, 2, 0)
@@ -529,12 +613,23 @@ OZ_BI_define(ozzero_sendmsg, 3, 1)
     OZ_declare(Message, 1, msg);
     ENSURE_VALID(Message, msg);
     OZ_declareInt(2, flags);
-    if (!socket->sendmsg(*msg, flags))
-        OZ_RETURN(OZ_true());
-    else if (errno == EAGAIN)
-        OZ_RETURN(OZ_false());
-    else
-        return raise_error();
+    while (true)
+    {
+        if (!socket->sendmsg(*msg, flags))
+            OZ_RETURN(OZ_true());
+        else {
+            int error_number = errno;
+            switch (error_number)
+            {
+                case EAGAIN:
+                    OZ_RETURN(OZ_false());
+                case EINTR:
+                    break;
+                default:
+                    return raise_error();
+            }
+        }
+    }
 }
 OZ_BI_end
 
@@ -547,15 +642,32 @@ OZ_BI_define(ozzero_recvmsg, 3, 1)
     ENSURE_VALID(Message, msg);
     OZ_declareInt(2, flags);
 
-    if (!socket->recvmsg(*msg, flags))
-        OZ_RETURN(OZ_true());
-    else if (errno == EAGAIN)
-        OZ_RETURN(OZ_false());
-    else
-        return raise_error();
+    while (true)
+    {
+        if (!socket->recvmsg(*msg, flags))
+            OZ_RETURN(OZ_true());
+        else {
+            int error_number = errno;
+            switch (error_number)
+            {
+                case EAGAIN:
+                    OZ_RETURN(OZ_false());
+                case EINTR:
+                    break;
+                default:
+                    return raise_error();
+            }
+        }
+    }
 }
 OZ_BI_end
 
+//}}}
+//------------------------------------------------------------------------------
+//{{{ Poll
+
+
+//}}}
 //------------------------------------------------------------------------------
 
 //#pragma GCC visibility pop
@@ -565,7 +677,7 @@ extern "C"
     OZ_C_proc_interface* oz_init_module(void)
     {
         static OZ_C_proc_interface interfaces[] = {
-            {"version", 0, 3, ozzero_version},
+            {"version", 0, 1, ozzero_version},
 
             // Context
             {"init", 1, 1, ozzero_init},
@@ -580,19 +692,13 @@ extern "C"
             {"msgMove", 2, 0, ozzero_msg_move},
             {"msgCopy", 2, 0, ozzero_msg_copy},
             {"msgSetData", 2, 0, ozzero_msg_set_data},
-            {"getmsgopt_int", 2, 1, ozzero_getmsgopt_int},
+            {"getmsgopt", 3, 1, ozzero_getmsgopt},
 
             // Socket
             {"socket", 2, 1, ozzero_socket},
             {"close", 1, 0, ozzero_close},
-            {"setsockopt", 3, 0, ozzero_setsockopt},
-            {"setsockopt_int", 3, 0, ozzero_setsockopt_int},
-            {"setsockopt_int64", 3, 0, ozzero_setsockopt_int64},
-            {"setsockopt_uint64", 3, 0, ozzero_setsockopt_uint64},
+            {"setsockopt", 4, 0, ozzero_setsockopt},
             {"getsockopt", 3, 1, ozzero_getsockopt},
-            {"getsockopt_int", 2, 1, ozzero_getsockopt_int},
-            {"getsockopt_int64", 2, 1, ozzero_getsockopt_int64},
-            {"getsockopt_uint64", 2, 1, ozzero_getsockopt_uint64},
             {"bind", 2, 0, ozzero_bind},
             {"connect", 2, 0, ozzero_connect},
             {"sendmsg", 3, 1, ozzero_sendmsg},
@@ -607,7 +713,7 @@ extern "C"
         INIT(Socket);
         #undef INIT
 
-        s_catch_signals();
+        //s_catch_signals();
 
         return interfaces;
     }

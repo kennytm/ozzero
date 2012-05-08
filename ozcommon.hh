@@ -49,6 +49,18 @@ namespace Ozzero
                               OZ_atom(error_message));
     }
 
+    /** Raise an Oz error, or call 'continue' if the errno is EINTR. Use it like
+    this inside an OZ_BI_define:
+
+        while (some function)
+            RETURN_RAISE_ERROR_OR_RETRY;
+        OZ_RETURN(etc);
+    */
+    #define RETURN_RAISE_ERROR_OR_RETRY \
+        if (errno != EINTR) \
+            return raise_error()
+
+
     static inline OZ_Return checked(int v)
     {
         return v ? raise_error() : OZ_ENTAILED;
@@ -184,7 +196,6 @@ namespace Ozzero
     #define ENSURE_VALID(Type, inst) \
         if (!inst->is_valid()) \
             return OZ_raiseErrorC("zmqError", 2, OZ_int(-1), OZ_atom(#Type " is already closed."))
-
 }
 
 #endif

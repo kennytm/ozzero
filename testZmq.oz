@@ -1,27 +1,35 @@
 functor
 import
     ZeroMQ
-    ZN at 'z14.so{native}'
+    %ZN at 'z14.so{native}'
     System
     Application
 define
     Version
     Context
-    Socket
-    Message
+    %Socket
+    %Message
 in
-    Version = {ZeroMQ.getVersion}
+    Version = ZeroMQ.version
     {System.show Version}
 
-    Context = {ZN.init 1}
+    Context = {ZeroMQ.init}
     {System.show Context}
 
     case {Application.getArgs plain}
     of "server"|_ then
+        RepSocket = {Context socket(rep $)}
+        RcvHwm SndHwm
+    in
+        thread {RepSocket get(rcvhwm:RcvHwm  sndhwm:SndHwm)} end
+        {System.showInfo RcvHwm}
+        {System.showInfo SndHwm}
+
+/*
             {System.showInfo 'server'}
 
             Socket = {ZN.socket Context 4}  % 4 = ZMQ_REP
-            {ZN.bind Socket 'inproc://*:5555'}
+            {ZN.bind Socket 'inproc:// *:5555'}
             {System.show Socket}
 
             {System.showInfo '... bound'}
@@ -46,8 +54,10 @@ in
             {ZN.close Socket}
 
             {System.showInfo '... closed'}
-
+*/
     [] "client"|_ then
+        skip
+        /*
             {System.showInfo 'client'}
 
             Socket = {ZN.socket Context 3}  % 3 = ZMQ_REQ
@@ -66,12 +76,14 @@ in
             {ZN.msgClose Message}
 
             {ZN.close Socket}
+            */
 
     else
         {System.showInfo 'Usage: ./testZmq.exe [server|client]'}
     end
 
-    {ZN.term Context}
+
+%    {Context close}
 
     {Application.exit 0}
 end
