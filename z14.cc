@@ -46,23 +46,7 @@ sigaction (i, &action, NULL);
 namespace Ozzero {
 
 //------------------------------------------------------------------------------
-//{{{ Versioning
-
-/** {ZN.version ?VersionRC} */
-OZ_BI_define(ozzero_version, 0, 1)
-{
-    int major, minor, patch;
-    zmq_version(&major, &minor, &patch);
-
-    OZ_Term props[] = {
-        OZ_pairAI("major", major),
-        OZ_pairAI("minor", minor),
-        OZ_pairAI("patch", patch),
-    };
-    OZ_Term prop_list = OZ_toList(sizeof(props)/sizeof(*props), props);
-    OZ_RETURN(OZ_recordInitC("version", prop_list));
-}
-OZ_BI_end
+//{{{ Utility functions
 
 /** Get an option value using the method (object->*getter). The type is
 determined using the type 'type_term' at the position 'type_pos' in the
@@ -149,6 +133,94 @@ static inline OZ_Return set_opt_common(int type_pos, OZ_Term type_term,
         RETURN_RAISE_ERROR_OR_RETRY;
     return OZ_ENTAILED;
 }
+
+static inline int decode_socket_type(const char* type)
+{
+    if (strcmp(type, "pair") == 0) return ZMQ_PAIR;
+    if (strcmp(type, "pub") == 0) return ZMQ_PUB;
+    if (strcmp(type, "sub") == 0) return ZMQ_SUB;
+    if (strcmp(type, "req") == 0) return ZMQ_REQ;
+    if (strcmp(type, "rep") == 0) return ZMQ_REP;
+    if (strcmp(type, "xreq") == 0) return ZMQ_XREQ;
+    if (strcmp(type, "xrep") == 0) return ZMQ_XREP;
+    if (strcmp(type, "pull") == 0) return ZMQ_PULL;
+    if (strcmp(type, "push") == 0) return ZMQ_PUSH;
+#if ZMQ_VERSION_MAJOR >= 3
+    if (strcmp(type, "xpub") == 0) return ZMQ_XPUB;
+    if (strcmp(type, "xsub") == 0) return ZMQ_XSUB;
+#endif
+    if (strcmp(type, "router") == 0) return ZMQ_ROUTER;
+    if (strcmp(type, "dealer") == 0) return ZMQ_DEALER;
+
+    return -1;
+}
+
+static inline int decode_sockopt(const char* optname)
+{
+#if ZMQ_VERSION_MAJOR >= 3
+    if (strcmp(optname, "sndhwm") == 0) return ZMQ_SNDHWM;
+    if (strcmp(optname, "rcvhwm") == 0) return ZMQ_RCVHWM;
+    if (strcmp(optname, "recoveryIvl") == 0) return ZMQ_RECOVERY_IVL;
+    if (strcmp(optname, "recoveryIvlMsec") == 0) return ZMQ_RECOVERY_IVL;
+    if (strcmp(optname, "ipv4only") == 0) return ZMQ_IPV4ONLY;
+    if (strcmp(optname, "multicastHops") == 0) return ZMQ_MULTICAST_HOPS;
+#else
+    if (strcmp(optname, "sndhwm") == 0) return ZMQ_HWM;
+    if (strcmp(optname, "rcvhwm") == 0) return ZMQ_HWM;
+    if (strcmp(optname, "hwm") == 0) return ZMQ_HWM;
+    if (strcmp(optname, "swap") == 0) return ZMQ_SWAP;
+    if (strcmp(optname, "recoveryIvl") == 0) return ZMQ_RECOVERY_IVL;
+    if (strcmp(optname, "recoveryIvlMsec") == 0) return ZMQ_RECOVERY_IVL_MSEC;
+    if (strcmp(optname, "mcastLoop") == 0) return ZMQ_MCAST_LOOP;
+#endif
+    if (strcmp(optname, "affinity") == 0) return ZMQ_AFFINITY;
+    if (strcmp(optname, "identity") == 0) return ZMQ_IDENTITY;
+    if (strcmp(optname, "subscribe") == 0) return ZMQ_SUBSCRIBE;
+    if (strcmp(optname, "unsubscribe") == 0) return ZMQ_UNSUBSCRIBE;
+    if (strcmp(optname, "rate") == 0) return ZMQ_RATE;
+    if (strcmp(optname, "sndbuf") == 0) return ZMQ_SNDBUF;
+    if (strcmp(optname, "rcvbuf") == 0) return ZMQ_RCVBUF;
+    if (strcmp(optname, "rcvmore") == 0) return ZMQ_RCVMORE;
+    if (strcmp(optname, "fd") == 0) return ZMQ_FD;
+    if (strcmp(optname, "events") == 0) return ZMQ_EVENTS;
+    if (strcmp(optname, "type") == 0) return ZMQ_TYPE;
+    if (strcmp(optname, "linger") == 0) return ZMQ_LINGER;
+    if (strcmp(optname, "reconnectIvl") == 0) return ZMQ_RECOVERY_IVL;
+    if (strcmp(optname, "backlog") == 0) return ZMQ_BACKLOG;
+    if (strcmp(optname, "reconnectIvlMax") == 0) return ZMQ_RECONNECT_IVL_MAX;
+    if (strcmp(optname, "maxmsgsize") == 0) return ZMQ_MAXMSGSIZE;
+    if (strcmp(optname, "rcvtimeo") == 0) return ZMQ_RCVTIMEO;
+    if (strcmp(optname, "sndtimeo") == 0) return ZMQ_SNDTIMEO;
+
+    return -1;
+}
+
+class Socket;
+class Message;
+
+static OZ_Return send_or_recv(Socket* socket, Message* msg, OZ_Term flags_term,
+                              int (Socket::*method)(Message&, int),
+                              OZ_Term& retval);
+
+//}}}
+//------------------------------------------------------------------------------
+//{{{ Versioning
+
+/** {ZN.version ?VersionRC} */
+OZ_BI_define(ozzero_version, 0, 1)
+{
+    int major, minor, patch;
+    zmq_version(&major, &minor, &patch);
+
+    OZ_Term props[] = {
+        OZ_pairAI("major", major),
+        OZ_pairAI("minor", minor),
+        OZ_pairAI("patch", patch),
+    };
+    OZ_Term prop_list = OZ_toList(sizeof(props)/sizeof(*props), props);
+    OZ_RETURN(OZ_recordInitC("version", prop_list));
+}
+OZ_BI_end
 
 //}}}
 //------------------------------------------------------------------------------
@@ -384,7 +456,7 @@ OZ_BI_define(ozzero_msg_set_data, 2, 0)
 }
 OZ_BI_end
 
-/** {ZN.getmsgopt_int +Message +OptA +TypeA ?Term} */
+/** {ZN.getmsgopt +Message +OptA +TypeA ?Term} */
 OZ_BI_define(ozzero_getmsgopt, 3, 1)
 {
     OZ_declare(Message, 0, msg);
@@ -397,6 +469,18 @@ OZ_BI_define(ozzero_getmsgopt, 3, 1)
     OZ_declareDetTerm(2, type_term);
     return get_opt_common(2, type_term, ZMQ_MORE, OZ_out(0),
                           msg, &Message::getmsgopt);
+}
+OZ_BI_end
+
+/** {ZN.msgCreateWithData +ByteString ?Message} */
+OZ_BI_define(ozzero_msg_create_with_data, 1, 1)
+{
+    OZ_declareByteString(0, data);
+    Message* msg = new Message();
+    size_t size = data->getSize();
+    msg->init_size(size);
+    msg->set_data(data->getData(), size);
+    OZ_RETURN(OZ_extension(msg));
 }
 OZ_BI_end
 
@@ -444,9 +528,6 @@ public:
 
     int recvmsg(Message& msg, int flags)
     {
-        printf("...????\n\n\n");
-        fflush(stdout);
-
         #if ZMQ_VERSION_MAJOR >= 3
             return zmq_recvmsg(_obj, msg.get(), flags);
         #else
@@ -456,27 +537,6 @@ public:
 
 
 };
-
-static inline int decode_socket_type(const char* type)
-{
-    if (strcmp(type, "pair") == 0) return ZMQ_PAIR;
-    if (strcmp(type, "pub") == 0) return ZMQ_PUB;
-    if (strcmp(type, "sub") == 0) return ZMQ_SUB;
-    if (strcmp(type, "req") == 0) return ZMQ_REQ;
-    if (strcmp(type, "rep") == 0) return ZMQ_REP;
-    if (strcmp(type, "xreq") == 0) return ZMQ_XREQ;
-    if (strcmp(type, "xrep") == 0) return ZMQ_XREP;
-    if (strcmp(type, "pull") == 0) return ZMQ_PULL;
-    if (strcmp(type, "push") == 0) return ZMQ_PUSH;
-#if ZMQ_VERSION_MAJOR >= 3
-    if (strcmp(type, "xpub") == 0) return ZMQ_XPUB;
-    if (strcmp(type, "xsub") == 0) return ZMQ_XSUB;
-#endif
-    if (strcmp(type, "router") == 0) return ZMQ_ROUTER;
-    if (strcmp(type, "dealer") == 0) return ZMQ_DEALER;
-
-    return -1;
-}
 
 /** {ZN.socket +Context +TypeA ?Socket} */
 OZ_BI_define(ozzero_socket, 2, 1)
@@ -504,46 +564,6 @@ OZ_BI_define(ozzero_close, 1, 0)
     return checked(socket->close());
 }
 OZ_BI_end
-
-static inline int decode_sockopt(const char* optname)
-{
-#if ZMQ_VERSION_MAJOR >= 3
-    if (strcmp(optname, "sndhwm") == 0) return ZMQ_SNDHWM;
-    if (strcmp(optname, "rcvhwm") == 0) return ZMQ_RCVHWM;
-    if (strcmp(optname, "recoveryIvl") == 0) return ZMQ_RECOVERY_IVL;
-    if (strcmp(optname, "recoveryIvlMsec") == 0) return ZMQ_RECOVERY_IVL;
-    if (strcmp(optname, "ipv4only") == 0) return ZMQ_IPV4ONLY;
-    if (strcmp(optname, "multicastHops") == 0) return ZMQ_MULTICAST_HOPS;
-#else
-    if (strcmp(optname, "sndhwm") == 0) return ZMQ_HWM;
-    if (strcmp(optname, "rcvhwm") == 0) return ZMQ_HWM;
-    if (strcmp(optname, "hwm") == 0) return ZMQ_HWM;
-    if (strcmp(optname, "swap") == 0) return ZMQ_SWAP;
-    if (strcmp(optname, "recoveryIvl") == 0) return ZMQ_RECOVERY_IVL;
-    if (strcmp(optname, "recoveryIvlMsec") == 0) return ZMQ_RECOVERY_IVL_MSEC;
-    if (strcmp(optname, "mcastLoop") == 0) return ZMQ_MCAST_LOOP;
-#endif
-    if (strcmp(optname, "affinity") == 0) return ZMQ_AFFINITY;
-    if (strcmp(optname, "identity") == 0) return ZMQ_IDENTITY;
-    if (strcmp(optname, "subscribe") == 0) return ZMQ_SUBSCRIBE;
-    if (strcmp(optname, "unsubscribe") == 0) return ZMQ_UNSUBSCRIBE;
-    if (strcmp(optname, "rate") == 0) return ZMQ_RATE;
-    if (strcmp(optname, "sndbuf") == 0) return ZMQ_SNDBUF;
-    if (strcmp(optname, "rcvbuf") == 0) return ZMQ_RCVBUF;
-    if (strcmp(optname, "rcvmore") == 0) return ZMQ_RCVMORE;
-    if (strcmp(optname, "fd") == 0) return ZMQ_FD;
-    if (strcmp(optname, "events") == 0) return ZMQ_EVENTS;
-    if (strcmp(optname, "type") == 0) return ZMQ_TYPE;
-    if (strcmp(optname, "linger") == 0) return ZMQ_LINGER;
-    if (strcmp(optname, "reconnectIvl") == 0) return ZMQ_RECOVERY_IVL;
-    if (strcmp(optname, "backlog") == 0) return ZMQ_BACKLOG;
-    if (strcmp(optname, "reconnectIvlMax") == 0) return ZMQ_RECONNECT_IVL_MAX;
-    if (strcmp(optname, "maxmsgsize") == 0) return ZMQ_MAXMSGSIZE;
-    if (strcmp(optname, "rcvtimeo") == 0) return ZMQ_RCVTIMEO;
-    if (strcmp(optname, "sndtimeo") == 0) return ZMQ_SNDTIMEO;
-
-    return -1;
-}
 
 /** {ZN.setsockopt +Socket +OptA +TypeA +Term}
 
@@ -605,53 +625,69 @@ OZ_BI_define(ozzero_connect, 2, 0)
 }
 OZ_BI_end
 
-/** {ZN.sendmsg +Socket +Message +Flags ?Completed} */
+
+
+/** {ZN.sendmsg +Socket +Message +FlagsL ?Completed} */
 OZ_BI_define(ozzero_sendmsg, 3, 1)
 {
     OZ_declare(Socket, 0, socket);
-    ENSURE_VALID(Socket, socket);
     OZ_declare(Message, 1, msg);
-    ENSURE_VALID(Message, msg);
-    OZ_declareInt(2, flags);
-    while (true)
-    {
-        if (!socket->sendmsg(*msg, flags))
-            OZ_RETURN(OZ_true());
-        else {
-            int error_number = errno;
-            switch (error_number)
-            {
-                case EAGAIN:
-                    OZ_RETURN(OZ_false());
-                case EINTR:
-                    break;
-                default:
-                    return raise_error();
-            }
-        }
-    }
+    OZ_declareDetTerm(2, flags);
+    return send_or_recv(socket, msg, flags, &Socket::sendmsg, OZ_out(0));
 }
 OZ_BI_end
 
-/** {ZN.recvmsg +Socket Message +Flags ?Completed} */
+/** {ZN.recvmsg +Socket Message +FlagsL ?Completed} */
 OZ_BI_define(ozzero_recvmsg, 3, 1)
 {
     OZ_declare(Socket, 0, socket);
-    ENSURE_VALID(Socket, socket);
     OZ_declare(Message, 1, msg);
+    OZ_declareDetTerm(2, flags);
+    return send_or_recv(socket, msg, flags, &Socket::recvmsg, OZ_out(0));
+}
+OZ_BI_end
+
+
+static OZ_Return send_or_recv(Socket* socket, Message* msg, OZ_Term flags_term,
+                              int (Socket::*method)(Message&, int),
+                              OZ_Term& retval)
+{
+    ENSURE_VALID(Socket, socket);
     ENSURE_VALID(Message, msg);
-    OZ_declareInt(2, flags);
+
+    int flags = 0;
+    while (OZ_isCons(flags_term))
+    {
+        const char* flag = OZ_atomToC(OZ_head(flags_term));
+        if (strcmp(flag, "dontwait") == 0 || strcmp(flag, "noblock") == 0)
+        {
+            #if ZMQ_VERSION_MAJOR >= 3
+                flags |= ZMQ_DONTWAIT;
+            #else
+                flags |= ZMQ_NOBLOCK;
+            #endif
+        }
+        else if (strcmp(flag, "sndmore") == 0)
+        {
+            flags |= ZMQ_SNDMORE;
+        }
+        flags_term = OZ_tail(flags_term);
+    }
 
     while (true)
     {
-        if (!socket->recvmsg(*msg, flags))
-            OZ_RETURN(OZ_true());
+        if (!(socket->*method)(*msg, flags))
+        {
+            retval = OZ_true();
+            return OZ_ENTAILED;
+        }
         else {
             int error_number = errno;
             switch (error_number)
             {
                 case EAGAIN:
-                    OZ_RETURN(OZ_false());
+                    retval = OZ_false();
+                    return OZ_ENTAILED;
                 case EINTR:
                     break;
                 default:
@@ -660,7 +696,6 @@ OZ_BI_define(ozzero_recvmsg, 3, 1)
         }
     }
 }
-OZ_BI_end
 
 //}}}
 //------------------------------------------------------------------------------
@@ -693,6 +728,7 @@ extern "C"
             {"msgCopy", 2, 0, ozzero_msg_copy},
             {"msgSetData", 2, 0, ozzero_msg_set_data},
             {"getmsgopt", 3, 1, ozzero_getmsgopt},
+            {"msgCreateWithData", 1, 1, ozzero_msg_create_with_data},
 
             // Socket
             {"socket", 2, 1, ozzero_socket},

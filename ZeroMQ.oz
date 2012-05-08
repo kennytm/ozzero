@@ -19,6 +19,7 @@ functor
 import
     ZN at 'z14.so{native}'
     Finalize
+    %ByteString
 
 export
     version: Version
@@ -100,6 +101,35 @@ define
             {Record.forAllInd M proc {$ I A}
                 A = {ZN.getsockopt self.NativeSocket I SockOptTypes.I $}
             end}
+        end
+
+        % send a virtual string or byte string
+        meth send(VS)
+            BS = if {IsByteString VS} then VS else {ByteString.make VS} end
+            NativeMessage = {ZN.msgCreateWithData {ByteString.make BS}}
+        in
+            {ZN.sendmsg self.NativeSocket NativeMessage nil _}
+            {ZN.msgClose NativeMessage}
+        end
+
+        % receive a virtual string
+        meth recv(?BS)
+            NativeMessage = {ZN.msgCreate}
+        in
+            {ZN.msgInit NativeMessage}
+            {ZN.recvmsg self.NativeSocket NativeMessage nil _}
+            BS = {ZN.msgData NativeMessage}
+            {ZN.msgClose NativeMessage}
+        end
+
+        % bind to an address
+        meth bind(VS)
+            {ZN.bind self.NativeSocket VS}
+        end
+
+        % connect to an address
+        meth connect(VS)
+            {ZN.connect self.NativeSocket VS}
         end
     end
 
