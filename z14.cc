@@ -30,27 +30,10 @@
 #include <mozart.h>
 #include <zmq.h>
 #include <vector>
-#include <csignal>
 
 //#pragma GCC visibility push(hidden)
 #include "ozcommon.hh"
 #include "m14/bytedata.hh"
-
-static void s_signal_handler (int signal_value)
-{
-printf("signal %d received\n", signal_value);
-fflush(stdout);
-}
-
-static void s_catch_signals (void)
-{
-struct sigaction action;
-action.sa_handler = s_signal_handler;
-action.sa_flags = 0;
-sigemptyset (&action.sa_mask);
-for (int i = 1; i < 32; ++ i)
-sigaction (i, &action, NULL);
-}
 
 namespace Ozzero {
 
@@ -74,8 +57,7 @@ static inline OZ_Return get_opt_common(int type_pos, OZ_Term type_term,
             { \
                 TYPE##_t retval; \
                 size_t length = sizeof(retval); \
-                while ((object->*getter)(opt_name, &retval, &length)) \
-                    RETURN_RAISE_ERROR_OR_RETRY; \
+                TRAPPING_SIGALRM((object->*getter)(opt_name, &retval, &length)); \
                 ret_term = OZ_##TYPE(retval); \
                 return OZ_ENTAILED; \
             }
@@ -96,8 +78,7 @@ static inline OZ_Return get_opt_common(int type_pos, OZ_Term type_term,
     {
         size_t buffer_length = OZ_intToC(type_term);
         std::vector<char> buffer (buffer_length);
-        while ((object->*getter)(opt_name, buffer.data(), &buffer_length))
-            RETURN_RAISE_ERROR_OR_RETRY;
+        TRAPPING_SIGALRM((object->*getter)(opt_name, buffer.data(), &buffer_length));
         ret_term = OZ_mkByteString(buffer.data(), buffer_length);
         return OZ_ENTAILED;
     }
@@ -118,8 +99,7 @@ static inline OZ_Return set_opt_common(int type_pos, OZ_Term type_term,
             if (strcmp(type, #TYPE) == 0) \
             { \
                 TYPE##_t value = OZ_intToC##TYPE(input_term); \
-                while ((object->*setter)(opt_name, &value, sizeof(value))) \
-                    RETURN_RAISE_ERROR_OR_RETRY; \
+                TRAPPING_SIGALRM((object->*setter)(opt_name, &value, sizeof(value))); \
                 return OZ_ENTAILED; \
             }
 
@@ -138,8 +118,8 @@ static inline OZ_Return set_opt_common(int type_pos, OZ_Term type_term,
     }
 
     ByteString* bs = tagged2ByteString(input_term);
-    while ((object->*setter)(opt_name, bs->getData(), bs->getSize()))
-        RETURN_RAISE_ERROR_OR_RETRY;
+
+    TRAPPING_SIGALRM((object->*setter)(opt_name, bs->getData(), bs->getSize()));
     return OZ_ENTAILED;
 }
 
@@ -279,8 +259,7 @@ OZ_BI_end
 OZ_BI_define(ozzero_term, 1, 0)
 {
     OZ_declare(Context, 0, context);
-    while (context->close())
-        RETURN_RAISE_ERROR_OR_RETRY;
+    TRAPPING_SIGALRM(context->close());
     return OZ_ENTAILED;
 }
 OZ_BI_end
@@ -698,7 +677,9 @@ static OZ_Return send_or_recv(Socket* socket, Message* msg, OZ_Term flags_term,
                     retval = OZ_false();
                     return OZ_ENTAILED;
                 case EINTR:
-                    break;
+                    if (!am.isSetSFlag(SigPending))
+                        break;
+                    // else fallthrough
                 default:
                     return raise_error();
             }
@@ -757,8 +738,6 @@ extern "C"
         INIT(Message);
         INIT(Socket);
         #undef INIT
-
-        //s_catch_signals();
 
         return interfaces;
     }

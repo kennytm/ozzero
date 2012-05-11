@@ -36,12 +36,14 @@
 #include <cstdio>
 #include <cstring>
 #include <climits>
+#include <csignal>
+#include <cerrno>
 #include <inttypes.h>
 #include <mozart.h>
+#include "m14/am.hh"
 
 namespace Ozzero
 {
-
     /** Raise an Oz error. Use it like this inside an OZ_BI_define:
 
         if (some bad condition)
@@ -58,17 +60,21 @@ namespace Ozzero
                               OZ_atom(error_message));
     }
 
-    /** Raise an Oz error, or call 'continue' if the errno is EINTR. Use it like
+    /** Raise an Oz error, retry the function if the errno is EINTR. Use it like
     this inside an OZ_BI_define:
 
-        while (some function)
-            RETURN_RAISE_ERROR_OR_RETRY;
+        TRAPPING_SIGALRM(some function);
         OZ_RETURN(etc);
     */
-    #define RETURN_RAISE_ERROR_OR_RETRY \
-        if (errno != EINTR) \
-            return raise_error()
-
+    #define TRAPPING_SIGALRM(...) \
+        do { \
+            while ((__VA_ARGS__)) \
+            { \
+                if (errno == EINTR && !am.isSetSFlag(SigPending)) \
+                    continue; \
+                return raise_error(); \
+            } \
+        } while(0)
 
     static inline OZ_Return checked(int v)
     {
