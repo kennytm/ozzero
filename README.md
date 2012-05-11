@@ -6,8 +6,8 @@ ZeroMQ binding in Mozart/Oz 1.4.
 Instructions
 ============
 
-1. Install [ZeroMQ 2.2](http://www.zeromq.org/area:download) (Version 3.1 is not
-   yet supported). Make sure it is installed as a 32-bit library.
+1. Install [ZeroMQ 2.2 or 3.1](http://www.zeromq.org/area:download). Make sure
+   it is installed as a 32-bit library.
 
     ```bash
     # Debian/Ubuntu 32-bit
