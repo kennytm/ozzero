@@ -101,7 +101,10 @@ define
         % set socket options
         meth set(...) = M
             {Record.forAllInd M proc {$ I A}
-                {ZN.setsockopt self.NativeSocket I SockOptTypes.I A}
+                OptType = SockOptTypes.I
+                Value = if {IsInt OptType} then {ByteString.make A} else A end
+            in
+                {ZN.setsockopt self.NativeSocket I OptType Value}
             end}
         end
 
@@ -121,7 +124,7 @@ define
             {ZN.msgClose NativeMessage}
         end
 
-        % receive a virtual string
+        % receive a byte string
         meth recv(?BS)
             NativeMessage = {ZN.msgCreate}
         in
@@ -158,6 +161,34 @@ define
         % Create a socket
         meth socket(Type $)
             {New Socket InternalInit(self.NativeContext Type)}
+        end
+
+        % Create a socket and bind many addresses to it.
+        meth bindSocket(Type AddrVSL $)
+            Socket = {self socket(Type $)}
+        in
+            if {IsVirtualString AddrVSL} then
+                {Socket bind(AddrVSL)}
+            else
+                for AddrVS in AddrVSL do
+                    {Socket bind(AddrVS)}
+                end
+            end
+            Socket
+        end
+
+        % Create a socket and connect it to many addresses.
+        meth connectSocket(Type AddrVSL $)
+            Socket = {self socket(Type $)}
+        in
+            if {IsVirtualString AddrVSL} then
+                {Socket connect(AddrVSL)}
+            else
+                for AddrVS in AddrVSL do
+                    {Socket connect(AddrVS)}
+                end
+            end
+            Socket
         end
 
         % Terminate the context
