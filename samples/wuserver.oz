@@ -11,10 +11,10 @@ import
 define
     % Convenient function to retrieve a (roughly) uniformly random integer.
     fun {UniformRandom LimitI}
-	MinI MaxI
+        MinI MaxI
     in
-	{OS.randLimits MinI MaxI}
-	(({OS.rand} - MinI) * LimitI) div (MaxI - MinI)
+        {OS.randLimits MinI MaxI}
+        (({OS.rand} - MinI) * LimitI) div (MaxI - MinI)
     end
 
     % Prepare our context and publisher
@@ -22,15 +22,15 @@ define
     Publisher = {Context bindSocket(pub ['tcp://*:5556' 'ipc://weather.ipc'] $)}
 
     proc {PublisherLoop}
-	% Get values that will fool the boss
-	ZipCode = {UniformRandom 100000}
-	Temperature = {UniformRandom 215} - 80
-	RelHumidity = {UniformRandom 50} + 10
-	Message = ZipCode#' '#Temperature#' '#RelHumidity
+        % Get values that will fool the boss
+        ZipCode = {UniformRandom 100000}
+        Temperature = {UniformRandom 215} - 80
+        RelHumidity = {UniformRandom 50} + 10
+        Message = ZipCode#' '#Temperature#' '#RelHumidity
     in
-	% Send message to all subscribers
-	{Publisher send(Message)}
-	{PublisherLoop}
+        % Send message to all subscribers
+        {Publisher send(Message)}
+        {PublisherLoop}
     end
 in
     % Initialize random number generator

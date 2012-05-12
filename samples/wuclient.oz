@@ -27,16 +27,16 @@ in
 
     % Process 100 updates
     TotalTemperature = for  sum:Add  I in 1..UpdateNumber do
-	BS = {Subscriber recv($)}
-	[_ Temperature _] = {String.tokens {ByteString.toString BS} (& )}
+        BS = {Subscriber recv($)}
+        [_ Temperature _] = {String.tokens {ByteString.toString BS} (& )}
     in
         {System.showInfo 'Temperature = '#Temperature}
-    	{Add {StringToInt Temperature}}
+        {Add {StringToInt Temperature}}
     end
 
     AverageTemperature = {IntToFloat TotalTemperature} / {IntToFloat UpdateNumber}
     {System.showInfo
-	"Average temperature for zipcode '"#Filter#"' was "#AverageTemperature}
+        "Average temperature for zipcode '"#Filter#"' was "#AverageTemperature}
 
     {Subscriber close}
     {Context close}
