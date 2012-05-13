@@ -29,7 +29,10 @@
 
 #include <mozart.h>
 #include <zmq.h>
+#include <pthread.h>
 #include <vector>
+#include <string>
+#include <tr1/unordered_map>
 
 //#pragma GCC visibility push(hidden)
 #include "ozcommon.hh"
@@ -123,72 +126,112 @@ static inline OZ_Return set_opt_common(int type_pos, OZ_Term type_term,
     return OZ_ENTAILED;
 }
 
-static inline int decode_socket_type(const char* type)
+#define RETURN_WRONG_VERSION(funcname, reqver) \
+    OZ_error("To use " #funcname ", please recompile with ZeroMQ v" reqver " or above."); \
+    return -1
+
+
+//{{{ Atom to integers
+
+struct AtomDecoder
 {
-    if (strcmp(type, "pair") == 0) return ZMQ_PAIR;
-    if (strcmp(type, "pub") == 0) return ZMQ_PUB;
-    if (strcmp(type, "sub") == 0) return ZMQ_SUB;
-    if (strcmp(type, "req") == 0) return ZMQ_REQ;
-    if (strcmp(type, "rep") == 0) return ZMQ_REP;
-    if (strcmp(type, "xreq") == 0) return ZMQ_XREQ;
-    if (strcmp(type, "xrep") == 0) return ZMQ_XREP;
-    if (strcmp(type, "pull") == 0) return ZMQ_PULL;
-    if (strcmp(type, "push") == 0) return ZMQ_PUSH;
-#if ZMQ_VERSION_MAJOR >= 3
-    if (strcmp(type, "xpub") == 0) return ZMQ_XPUB;
-    if (strcmp(type, "xsub") == 0) return ZMQ_XSUB;
-#endif
-    if (strcmp(type, "router") == 0) return ZMQ_ROUTER;
-    if (strcmp(type, "dealer") == 0) return ZMQ_DEALER;
+    std::tr1::unordered_map<std::string, int> socket_type_map;
+    std::tr1::unordered_map<std::string, int> sockopt_map;
+    std::tr1::unordered_map<std::string, int> ctx_getset_map;
+    std::tr1::unordered_map<std::string, int> msg_getset_map;
+    std::tr1::unordered_map<std::string, int> send_recv_flags_map;
 
-    return -1;
-}
+    AtomDecoder()
+    {
+        socket_type_map.insert(std::make_pair("pair", ZMQ_PAIR));
+        socket_type_map.insert(std::make_pair("pub", ZMQ_PUB));
+        socket_type_map.insert(std::make_pair("sub", ZMQ_SUB));
+        socket_type_map.insert(std::make_pair("req", ZMQ_REQ));
+        socket_type_map.insert(std::make_pair("rep", ZMQ_REP));
+        socket_type_map.insert(std::make_pair("xreq", ZMQ_XREQ));
+        socket_type_map.insert(std::make_pair("xrep", ZMQ_XREP));
+        socket_type_map.insert(std::make_pair("pull", ZMQ_PULL));
+        socket_type_map.insert(std::make_pair("push", ZMQ_PUSH));
+        socket_type_map.insert(std::make_pair("router", ZMQ_ROUTER));
+        socket_type_map.insert(std::make_pair("dealer", ZMQ_DEALER));
+    #if ZMQ_VERSION >= 30100
+        socket_type_map.insert(std::make_pair("xpub", ZMQ_XPUB));
+        socket_type_map.insert(std::make_pair("xsub", ZMQ_XSUB));
+    #endif
 
-static inline int decode_sockopt(const char* optname)
-{
-#if ZMQ_VERSION_MAJOR >= 3
-    if (strcmp(optname, "sndhwm") == 0) return ZMQ_SNDHWM;
-    if (strcmp(optname, "rcvhwm") == 0) return ZMQ_RCVHWM;
-    if (strcmp(optname, "recoveryIvl") == 0) return ZMQ_RECOVERY_IVL;
-    if (strcmp(optname, "recoveryIvlMsec") == 0) return ZMQ_RECOVERY_IVL;
-    if (strcmp(optname, "ipv4only") == 0) return ZMQ_IPV4ONLY;
-    if (strcmp(optname, "multicastHops") == 0) return ZMQ_MULTICAST_HOPS;
-#else
-    if (strcmp(optname, "sndhwm") == 0) return ZMQ_HWM;
-    if (strcmp(optname, "rcvhwm") == 0) return ZMQ_HWM;
-    if (strcmp(optname, "hwm") == 0) return ZMQ_HWM;
-    if (strcmp(optname, "swap") == 0) return ZMQ_SWAP;
-    if (strcmp(optname, "recoveryIvl") == 0) return ZMQ_RECOVERY_IVL;
-    if (strcmp(optname, "recoveryIvlMsec") == 0) return ZMQ_RECOVERY_IVL_MSEC;
-    if (strcmp(optname, "mcastLoop") == 0) return ZMQ_MCAST_LOOP;
-#endif
-    if (strcmp(optname, "affinity") == 0) return ZMQ_AFFINITY;
-    if (strcmp(optname, "identity") == 0) return ZMQ_IDENTITY;
-    if (strcmp(optname, "subscribe") == 0) return ZMQ_SUBSCRIBE;
-    if (strcmp(optname, "unsubscribe") == 0) return ZMQ_UNSUBSCRIBE;
-    if (strcmp(optname, "rate") == 0) return ZMQ_RATE;
-    if (strcmp(optname, "sndbuf") == 0) return ZMQ_SNDBUF;
-    if (strcmp(optname, "rcvbuf") == 0) return ZMQ_RCVBUF;
-    if (strcmp(optname, "rcvmore") == 0) return ZMQ_RCVMORE;
-    if (strcmp(optname, "fd") == 0) return ZMQ_FD;
-    if (strcmp(optname, "events") == 0) return ZMQ_EVENTS;
-    if (strcmp(optname, "type") == 0) return ZMQ_TYPE;
-    if (strcmp(optname, "linger") == 0) return ZMQ_LINGER;
-    if (strcmp(optname, "reconnectIvl") == 0) return ZMQ_RECOVERY_IVL;
-    if (strcmp(optname, "backlog") == 0) return ZMQ_BACKLOG;
-    if (strcmp(optname, "reconnectIvlMax") == 0) return ZMQ_RECONNECT_IVL_MAX;
-    if (strcmp(optname, "maxmsgsize") == 0) return ZMQ_MAXMSGSIZE;
-    if (strcmp(optname, "rcvtimeo") == 0) return ZMQ_RCVTIMEO;
-    if (strcmp(optname, "sndtimeo") == 0) return ZMQ_SNDTIMEO;
+    #if ZMQ_VERSION >= 30100
+        sockopt_map.insert(std::make_pair("sndhwm", ZMQ_SNDHWM));
+        sockopt_map.insert(std::make_pair("rcvhwm", ZMQ_RCVHWM));
+        sockopt_map.insert(std::make_pair("recoveryIvlMsec", ZMQ_RECOVERY_IVL));
+        sockopt_map.insert(std::make_pair("ipv4only", ZMQ_IPV4ONLY));
+        sockopt_map.insert(std::make_pair("multicastHops", ZMQ_MULTICAST_HOPS));
+    #if ZMQ_VERSION >= 30101
+        sockopt_map.insert(std::make_pair("lastEndpoint", ZMQ_LAST_ENDPOINT));
+        sockopt_map.insert(std::make_pair("failUnroutable", ZMQ_FAIL_UNROUTABLE));
+        sockopt_map.insert(std::make_pair("tcpKeepalive", ZMQ_TCP_KEEPALIVE));
+        sockopt_map.insert(std::make_pair("tcpKeepaliveCnt", ZMQ_TCP_KEEPALIVE_CNT));
+        sockopt_map.insert(std::make_pair("tcpKeepaliveIdle", ZMQ_TCP_KEEPALIVE_IDLE));
+        sockopt_map.insert(std::make_pair("tcpKeepaliveIntvl", ZMQ_TCP_KEEPALIVE_INTVL));
+        sockopt_map.insert(std::make_pair("tcpAcceptFilter", ZMQ_TCP_ACCEPT_FILTER));
+        sockopt_map.insert(std::make_pair("monitor", ZMQ_MONITOR));
+    #endif
+    #else
+        sockopt_map.insert(std::make_pair("sndhwm", ZMQ_HWM));
+        sockopt_map.insert(std::make_pair("rcvhwm", ZMQ_HWM));
+        sockopt_map.insert(std::make_pair("hwm", ZMQ_HWM));
+        sockopt_map.insert(std::make_pair("swap", ZMQ_SWAP));
+        sockopt_map.insert(std::make_pair("recoveryIvlMsec", ZMQ_RECOVERY_IVL_MSEC));
+        sockopt_map.insert(std::make_pair("mcastLoop", ZMQ_MCAST_LOOP));
+    #endif
+        sockopt_map.insert(std::make_pair("recoveryIvl", ZMQ_RECOVERY_IVL));
+        sockopt_map.insert(std::make_pair("affinity", ZMQ_AFFINITY));
+        sockopt_map.insert(std::make_pair("identity", ZMQ_IDENTITY));
+        sockopt_map.insert(std::make_pair("subscribe", ZMQ_SUBSCRIBE));
+        sockopt_map.insert(std::make_pair("unsubscribe", ZMQ_UNSUBSCRIBE));
+        sockopt_map.insert(std::make_pair("rate", ZMQ_RATE));
+        sockopt_map.insert(std::make_pair("sndbuf", ZMQ_SNDBUF));
+        sockopt_map.insert(std::make_pair("rcvbuf", ZMQ_RCVBUF));
+        sockopt_map.insert(std::make_pair("rcvmore", ZMQ_RCVMORE));
+        sockopt_map.insert(std::make_pair("fd", ZMQ_FD));
+        sockopt_map.insert(std::make_pair("events", ZMQ_EVENTS));
+        sockopt_map.insert(std::make_pair("type", ZMQ_TYPE));
+        sockopt_map.insert(std::make_pair("linger", ZMQ_LINGER));
+        sockopt_map.insert(std::make_pair("reconnectIvl", ZMQ_RECOVERY_IVL));
+        sockopt_map.insert(std::make_pair("backlog", ZMQ_BACKLOG));
+        sockopt_map.insert(std::make_pair("reconnectIvlMax", ZMQ_RECONNECT_IVL_MAX));
+        sockopt_map.insert(std::make_pair("maxmsgsize", ZMQ_MAXMSGSIZE));
+        sockopt_map.insert(std::make_pair("rcvtimeo", ZMQ_RCVTIMEO));
+        sockopt_map.insert(std::make_pair("sndtimeo", ZMQ_SNDTIMEO));
 
-    return -1;
-}
+    #if ZMQ_VERSION >= 30101
+        ctx_getset_map.insert(std::make_pair("ioThreads", ZMQ_IO_THREADS));
+        ctx_getset_map.insert(std::make_pair("maxSockets", ZMQ_MAX_SOCKETS));
+    #endif
+
+    #if ZMQ_VERSION >= 30100
+        msg_getset_map.insert(std::make_pair("more", ZMQ_MORE));
+    #endif
+
+        send_recv_flags_map.insert(std::make_pair("sndmore", ZMQ_SNDMORE));
+    #if ZMQ_VERSION >= 30100
+        send_recv_flags_map.insert(std::make_pair("dontwait", ZMQ_DONTWAIT));
+        send_recv_flags_map.insert(std::make_pair("noblock", ZMQ_DONTWAIT));
+    #else
+        send_recv_flags_map.insert(std::make_pair("dontwait", ZMQ_NOBLOCK));
+        send_recv_flags_map.insert(std::make_pair("noblock", ZMQ_NOBLOCK));
+    #endif
+    }
+};
+
+static AtomDecoder g_atom_decoder;
+
+//}}}
 
 class Socket;
 class Message;
 
 static OZ_Return send_or_recv(Socket* socket, Message* msg, OZ_Term flags_term,
-                              int (Socket::*method)(Message&, int),
+                              int (Message::*method)(Socket&, int),
                               OZ_Term& retval);
 
 //}}}
@@ -227,11 +270,33 @@ public:
         if (obj == NULL)
             return 0;
         _obj = NULL;
+    #if ZMQ_VERSION >= 30101
+        return zmq_ctx_destroy(obj);
+    #else
         return zmq_term(obj);
+    #endif
     }
 
     bool is_valid() const { return _obj != NULL; }
     void* socket(int type) { return zmq_socket(_obj, type); }
+
+    int get(int option)
+    {
+    #if ZMQ_VERSION >= 30101
+        return zmq_ctx_get(_obj, option);
+    #else
+        RETURN_WRONG_VERSION(zmq_ctx_get, "3.1.1");
+    #endif
+    }
+
+    int set(int option, int value)
+    {
+    #if ZMQ_VERSION >= 30101
+        return zmq_ctx_set(_obj, option, value);
+    #else
+        RETURN_WRONG_VERSION(zmq_ctx_set, "3.1.1");
+    #endif
+    }
 
     virtual OZ_Term printV(int depth)
     {
@@ -242,27 +307,194 @@ public:
     }
 };
 
-/** {ZN.init +IOThreads ?Context} */
-OZ_BI_define(ozzero_init, 1, 1)
+/** {ZN.ctxNew +IOThreads ?Context} */
+OZ_BI_define(ozzero_ctx_new, 1, 1)
 {
     OZ_declareInt(0, io_threads);
 
-    void* context = zmq_init(io_threads);
+    void* context;
+#if ZMQ_VERSION >= 30101
+    context = zmq_ctx_new();
+#else
+    context = zmq_init(io_threads);
+#endif
+
     if (context == NULL)
         return raise_error();
-    else
-        OZ_RETURN(OZ_extension(new Context(context)));
+
+#if ZMQ_VERSION >= 30101
+    if (io_threads != ZMQ_IO_THREADS_DFLT)
+        zmq_ctx_set(context, ZMQ_IO_THREADS, io_threads);
+#endif
+
+    OZ_RETURN(OZ_extension(new Context(context)));
 }
 OZ_BI_end
 
-/** {ZN.term +Context} */
-OZ_BI_define(ozzero_term, 1, 0)
+/** {ZN.ctxDestroy +Context} */
+OZ_BI_define(ozzero_ctx_destroy, 1, 0)
 {
     OZ_declare(Context, 0, context);
     TRAPPING_SIGALRM(context->close());
     return OZ_ENTAILED;
 }
 OZ_BI_end
+
+/** {ZN.ctxGet +Context +OptA ?ResI} */
+OZ_BI_define(ozzero_ctx_get, 2, 1)
+{
+    OZ_declare(Context, 0, context);
+    ENSURE_VALID(Context, context);
+    OZ_declareAndDecode(g_atom_decoder.socket_type_map, "socket type", 1, option);
+
+    int res = context->get(option);
+    if (res < 0)
+        return raise_error();
+    else
+        OZ_RETURN_INT(res);
+}
+OZ_BI_end
+
+/** {ZN.ctxSet +Context +OptA +ValI} */
+OZ_BI_define(ozzero_ctx_set, 3, 0)
+{
+    OZ_declare(Context, 0, context);
+    ENSURE_VALID(Context, context);
+    OZ_declareAndDecode(g_atom_decoder.socket_type_map, "socket type", 1, option);
+    OZ_declareInt(2, value);
+
+    return checked(context->set(option, value));
+}
+OZ_BI_end
+
+//}}}
+//------------------------------------------------------------------------------
+//{{{ Socket
+
+int g_id_Socket;
+class Socket : public Extension<Socket, void*, g_id_Socket>
+{
+public:
+    explicit Socket(void* obj) : Extension(obj) {}
+
+    int close() {
+        void* obj = _obj;
+        if (obj == NULL)
+            return 0;
+        _obj = NULL;
+        return zmq_close(obj);
+    }
+
+    virtual OZ_Term printV(int depth)
+    {
+        return OZ_mkTupleC("#", 3,
+                           OZ_atom("<Z14.Socket "),
+                           OZ_unsignedLong(reinterpret_cast<uintptr_t>(_obj)),
+                           OZ_atom(">"));
+    }
+
+    bool is_valid() const { return _obj != NULL; }
+
+    int setsockopt(int name, const void* value, size_t length) { return zmq_setsockopt(_obj, name, value, length); }
+    int getsockopt(int name, void* value, size_t* length) { return zmq_getsockopt(_obj, name, value, length); }
+    int bind(const char* addr) { return zmq_bind(_obj, addr); }
+    int connect(const char* addr) { return zmq_connect(_obj, addr); }
+
+    int unbind(const char* addr)
+    {
+    #if ZMQ_VERSION >= 30101
+        return zmq_unbind(_obj, addr);
+    #else
+        RETURN_WRONG_VERSION(zmq_unbind, "3.1.1");
+    #endif
+    }
+
+    int disconnect(const char* addr)
+    {
+    #if ZMQ_VERSION >= 30101
+        return zmq_disconnect(_obj, addr);
+    #else
+        RETURN_WRONG_VERSION(zmq_disconnect, "3.1.1");
+    #endif
+    }
+};
+
+/** {ZN.socket +Context +TypeA ?Socket} */
+OZ_BI_define(ozzero_socket, 2, 1)
+{
+    OZ_declare(Context, 0, context);
+    ENSURE_VALID(Context, context);
+    OZ_declareAndDecode(g_atom_decoder.socket_type_map, "socket type", 1, type);
+
+    void* socket = context->socket(type);
+    if (socket == NULL)
+        return raise_error();
+    else
+        OZ_RETURN(OZ_extension(new Socket(socket)));
+}
+OZ_BI_end
+
+/** {ZN.close +Socket} */
+OZ_BI_define(ozzero_close, 1, 0)
+{
+    OZ_declare(Socket, 0, socket);
+    return checked(socket->close());
+}
+OZ_BI_end
+
+/** {ZN.setsockopt +Socket +OptA +TypeA +Term}
+
+where TypeA should be one of 'int', 'int64', 'uint64' or other things (which
+will be interpreted as 'byteString').
+*/
+OZ_BI_define(ozzero_setsockopt, 4, 0)
+{
+    OZ_declare(Socket, 0, socket);
+    ENSURE_VALID(Socket, socket);
+    OZ_declareAndDecode(g_atom_decoder.sockopt_map, "socket option", 1, real_name);
+    OZ_declareDetTerm(2, type_term);
+    return set_opt_common(2, type_term, real_name, OZ_in(3),
+                          socket, &Socket::setsockopt);
+}
+OZ_BI_end
+
+/** {ZN.getsockopt +Socket +OptA +TypeA ?Term}
+
+where TypeA should be one of 'int', 'int64', 'uint64' or an integer (which will
+be interpreted as a 'byteString' with a maximum length).
+*/
+OZ_BI_define(ozzero_getsockopt, 3, 1)
+{
+    OZ_declare(Socket, 0, socket);
+    ENSURE_VALID(Socket, socket);
+    OZ_declareAndDecode(g_atom_decoder.sockopt_map, "socket option", 1, real_name);
+    OZ_declareDetTerm(2, type_term);
+    return get_opt_common(2, type_term, real_name, OZ_out(0),
+                          socket, &Socket::getsockopt);
+}
+OZ_BI_end
+
+/** {ZN.bind +Socket +AddrVS}
+    {ZN.connect +Socket +AddrVS}
+    {ZN.unbind +Socket +AddrVS}
+    {ZN.disconnect +Socket +AddrVS}
+*/
+#define DEFINE_CONNECT_FUNC(NAME) \
+    OZ_BI_define(ozzero_##NAME, 2, 0) \
+    { \
+        OZ_declare(Socket, 0, socket); \
+        ENSURE_VALID(Socket, socket); \
+        OZ_declareVirtualString(1, addr); \
+        return checked(socket->NAME(addr)); \
+    } \
+    OZ_BI_end
+
+DEFINE_CONNECT_FUNC(bind)
+DEFINE_CONNECT_FUNC(connect)
+DEFINE_CONNECT_FUNC(unbind)
+DEFINE_CONNECT_FUNC(disconnect)
+
+#undef DEFINE_CONNECT_FUNC
 
 //}}}
 //------------------------------------------------------------------------------
@@ -328,14 +560,49 @@ public:
         memcpy(old_data, new_data, new_size);
     }
 
-    int getmsgopt(int name, void* value, size_t* length)
+    int get(int name)
     {
-        #if ZMQ_VERSION_MAJOR >= 3
-            return zmq_getmsgopt(&_obj, name, value, length);
-        #else
-            OZ_error("To use getmsgopt, please recompile ozzero with ZeroMQ v3.");
-            return -1;
-        #endif
+    #if ZMQ_VERSION >= 30101
+        return zmq_msg_get(&_obj, name);
+    #elif ZMQ_VERSION >= 30100
+        int retval;
+        size_t length = sizeof(retval);
+        int errcode = zmq_getmsgopt(&_obj, name, &retval, &length);
+        return errcode < 0 ? errcode : retval;
+    #else
+        RETURN_WRONG_VERSION(zmq_msg_get, "3.1.0");
+    #endif
+    }
+
+    int set(int name, int value)
+    {
+    #if ZMQ_VERSION >= 30101
+        return zmq_msg_set(&_obj, name, value);
+    #else
+        RETURN_WRONG_VERSION(zmq_msg_set, "3.1.1");
+    #endif
+    }
+
+    int recv(Socket& socket, int flags)
+    {
+    #if ZMQ_VERSION >= 30101
+        return zmq_msg_recv(&_obj, socket._obj, flags);
+    #elif ZMQ_VERSION >= 30100
+        return zmq_recvmsg(socket._obj, &_obj, flags);
+    #else
+        return zmq_recv(socket._obj, &_obj, flags);
+    #endif
+    }
+
+    int send(Socket& socket, int flags)
+    {
+    #if ZMQ_VERSION >= 30101
+        return zmq_msg_send(&_obj, socket._obj, flags);
+    #elif ZMQ_VERSION >= 30100
+        return zmq_sendmsg(socket._obj, &_obj, flags);
+    #else
+        return zmq_send(socket._obj, &_obj, flags);
+    #endif
     }
 
     virtual OZ_Term printV(int depth)
@@ -444,21 +711,33 @@ OZ_BI_define(ozzero_msg_set_data, 2, 0)
 }
 OZ_BI_end
 
-/** {ZN.getmsgopt +Message +OptA +TypeA ?Term} */
-OZ_BI_define(ozzero_getmsgopt, 3, 1)
+/** {ZN.msgGet +Message +OptA ?RetI} */
+OZ_BI_define(ozzero_msg_get, 2, 1)
 {
     OZ_declare(Message, 0, msg);
     ENSURE_VALID(Message, msg);
+    OZ_declareAndDecode(g_atom_decoder.msg_getset_map, "message option", 1, option);
 
-    OZ_declareAtom(1, name);
-    if (strcmp(name, "more") != 0)
-        return OZ_typeError(1, "message option");
-
-    OZ_declareDetTerm(2, type_term);
-    return get_opt_common(2, type_term, ZMQ_MORE, OZ_out(0),
-                          msg, &Message::getmsgopt);
+    int res = msg->get(option);
+    if (res < 0)
+        return raise_error();
+    else
+        return res;
 }
 OZ_BI_end
+
+/** {ZN.msgSet +Message +OptA +ValueI} */
+OZ_BI_define(ozzero_msg_set, 3, 0)
+{
+    OZ_declare(Message, 0, msg);
+    ENSURE_VALID(Message, msg);
+    OZ_declareAndDecode(g_atom_decoder.msg_getset_map, "message option", 1, option);
+    OZ_declareInt(2, value);
+
+    return checked(msg->set(option, value));
+}
+OZ_BI_end
+
 
 /** {ZN.msgCreateWithData +ByteString ?Message} */
 OZ_BI_define(ozzero_msg_create_with_data, 1, 1)
@@ -472,172 +751,28 @@ OZ_BI_define(ozzero_msg_create_with_data, 1, 1)
 }
 OZ_BI_end
 
-//}}}
-//------------------------------------------------------------------------------
-//{{{ Socket
-
-int g_id_Socket;
-class Socket : public Extension<Socket, void*, g_id_Socket>
+/** {ZN.msgSend +Message +Socket +FlagsL ?Completed} */
+OZ_BI_define(ozzero_msg_send, 3, 1)
 {
-public:
-    explicit Socket(void* obj) : Extension(obj) {}
-
-    int close() {
-        void* obj = _obj;
-        if (obj == NULL)
-            return 0;
-        _obj = NULL;
-        return zmq_close(obj);
-    }
-
-    virtual OZ_Term printV(int depth)
-    {
-        return OZ_mkTupleC("#", 3,
-                           OZ_atom("<Z14.Socket "),
-                           OZ_unsignedLong(reinterpret_cast<uintptr_t>(_obj)),
-                           OZ_atom(">"));
-    }
-
-    bool is_valid() const { return _obj != NULL; }
-
-    int setsockopt(int name, const void* value, size_t length) { return zmq_setsockopt(_obj, name, value, length); }
-    int getsockopt(int name, void* value, size_t* length) { return zmq_getsockopt(_obj, name, value, length); }
-    int bind(const char* addr) { return zmq_bind(_obj, addr); }
-    int connect(const char* addr) { return zmq_connect(_obj, addr); }
-
-    int sendmsg(Message& msg, int flags)
-    {
-        #if ZMQ_VERSION_MAJOR >= 3
-            return zmq_sendmsg(_obj, msg.get(), flags);
-        #else
-            return zmq_send(_obj, msg.get(), flags);
-        #endif
-    }
-
-    int recvmsg(Message& msg, int flags)
-    {
-        #if ZMQ_VERSION_MAJOR >= 3
-            return zmq_recvmsg(_obj, msg.get(), flags);
-        #else
-            return zmq_recv(_obj, msg.get(), flags);
-        #endif
-    }
-
-
-};
-
-/** {ZN.socket +Context +TypeA ?Socket} */
-OZ_BI_define(ozzero_socket, 2, 1)
-{
-    OZ_declare(Context, 0, context);
-    ENSURE_VALID(Context, context);
-
-    OZ_declareAtom(1, type);
-    int real_type = decode_socket_type(type);
-    if (real_type < 0)
-        return OZ_typeError(1, "socket type");
-
-    void* socket = context->socket(real_type);
-    if (socket == NULL)
-        return raise_error();
-    else
-        OZ_RETURN(OZ_extension(new Socket(socket)));
+    OZ_declare(Message, 0, msg);
+    OZ_declare(Socket, 1, socket);
+    OZ_declareDetTerm(2, flags_term);
+    return send_or_recv(socket, msg, flags_term, &Message::send, OZ_out(0));
 }
 OZ_BI_end
 
-/** {ZN.close +Socket} */
-OZ_BI_define(ozzero_close, 1, 0)
+/** {ZN.msgRecv +Message +Socket +FlagsL ?Completed} */
+OZ_BI_define(ozzero_msg_recv, 3, 1)
 {
-    OZ_declare(Socket, 0, socket);
-    return checked(socket->close());
+    OZ_declare(Message, 0, msg);
+    OZ_declare(Socket, 1, socket);
+    OZ_declareDetTerm(2, flags_term);
+    return send_or_recv(socket, msg, flags_term, &Message::recv, OZ_out(0));
 }
 OZ_BI_end
-
-/** {ZN.setsockopt +Socket +OptA +TypeA +Term}
-
-where TypeA should be one of 'int', 'int64', 'uint64' or other things (which
-will be interpreted as 'byteString').
-*/
-OZ_BI_define(ozzero_setsockopt, 4, 0)
-{
-    OZ_declare(Socket, 0, socket);
-    ENSURE_VALID(Socket, socket);
-    OZ_declareAtom(1, name);
-    int real_name = decode_sockopt(name);
-    if (real_name < 0)
-        return OZ_typeError(1, "socket option");
-    OZ_declareDetTerm(2, type_term);
-    return set_opt_common(2, type_term, real_name, OZ_in(3),
-                          socket, &Socket::setsockopt);
-}
-OZ_BI_end
-
-/** {ZN.getsockopt +Socket +OptA +TypeA ?Term}
-
-where TypeA should be one of 'int', 'int64', 'uint64' or an integer (which will
-be interpreted as a 'byteString' with a maximum length).
-*/
-OZ_BI_define(ozzero_getsockopt, 3, 1)
-{
-    OZ_declare(Socket, 0, socket);
-    ENSURE_VALID(Socket, socket);
-    OZ_declareAtom(1, name);
-    int real_name = decode_sockopt(name);
-    if (real_name < 0)
-        return OZ_typeError(1, "socket option");
-    OZ_declareDetTerm(2, type_term);
-    return get_opt_common(2, type_term, real_name, OZ_out(0),
-                          socket, &Socket::getsockopt);
-}
-OZ_BI_end
-
-#undef GET_SET_SOCK_COMMON
-
-/** {ZN.bind +Socket +AddrVS} */
-OZ_BI_define(ozzero_bind, 2, 0)
-{
-    OZ_declare(Socket, 0, socket);
-    ENSURE_VALID(Socket, socket);
-    OZ_declareVirtualString(1, addr);
-    return checked(socket->bind(addr));
-}
-OZ_BI_end
-
-/** {ZN.connect +Socket +AddrVS} */
-OZ_BI_define(ozzero_connect, 2, 0)
-{
-    OZ_declare(Socket, 0, socket);
-    ENSURE_VALID(Socket, socket);
-    OZ_declareVirtualString(1, addr);
-    return checked(socket->connect(addr));
-}
-OZ_BI_end
-
-
-
-/** {ZN.sendmsg +Socket +Message +FlagsL ?Completed} */
-OZ_BI_define(ozzero_sendmsg, 3, 1)
-{
-    OZ_declare(Socket, 0, socket);
-    OZ_declare(Message, 1, msg);
-    OZ_declareDetTerm(2, flags);
-    return send_or_recv(socket, msg, flags, &Socket::sendmsg, OZ_out(0));
-}
-OZ_BI_end
-
-/** {ZN.recvmsg +Socket Message +FlagsL ?Completed} */
-OZ_BI_define(ozzero_recvmsg, 3, 1)
-{
-    OZ_declare(Socket, 0, socket);
-    OZ_declare(Message, 1, msg);
-    OZ_declareDetTerm(2, flags);
-    return send_or_recv(socket, msg, flags, &Socket::recvmsg, OZ_out(0));
-}
-OZ_BI_end
-
 
 static OZ_Return send_or_recv(Socket* socket, Message* msg, OZ_Term flags_term,
-                              int (Socket::*method)(Message&, int),
+                              int (Message::*method)(Socket&, int),
                               OZ_Term& retval)
 {
     ENSURE_VALID(Socket, socket);
@@ -647,24 +782,17 @@ static OZ_Return send_or_recv(Socket* socket, Message* msg, OZ_Term flags_term,
     while (OZ_isCons(flags_term))
     {
         const char* flag = OZ_atomToC(OZ_head(flags_term));
-        if (strcmp(flag, "dontwait") == 0 || strcmp(flag, "noblock") == 0)
-        {
-            #if ZMQ_VERSION_MAJOR >= 3
-                flags |= ZMQ_DONTWAIT;
-            #else
-                flags |= ZMQ_NOBLOCK;
-            #endif
-        }
-        else if (strcmp(flag, "sndmore") == 0)
-        {
-            flags |= ZMQ_SNDMORE;
-        }
+        std::tr1::unordered_map<std::string, int>::const_iterator cit =
+                g_atom_decoder.send_recv_flags_map.find(flag);
+        if (cit == g_atom_decoder.send_recv_flags_map.end())
+            return OZ_typeError(2, "list of send/recv options");
+        flags |= cit->second;
         flags_term = OZ_tail(flags_term);
     }
 
     while (true)
     {
-        if (!(socket->*method)(*msg, flags))
+        if ((msg->*method)(*socket, flags) >= 0)
         {
             retval = OZ_true();
             return OZ_ENTAILED;
@@ -705,8 +833,20 @@ extern "C"
             {"version", 0, 1, ozzero_version},
 
             // Context
-            {"init", 1, 1, ozzero_init},
-            {"term", 1, 0, ozzero_term},
+            {"ctxNew", 1, 1, ozzero_ctx_new},
+            {"ctxDestroy", 1, 0, ozzero_ctx_destroy},
+            {"ctxGet", 2, 1, ozzero_ctx_get},
+            {"ctxSet", 3, 0, ozzero_ctx_set},
+
+            // Socket
+            {"socket", 2, 1, ozzero_socket},
+            {"close", 1, 0, ozzero_close},
+            {"setsockopt", 4, 0, ozzero_setsockopt},
+            {"getsockopt", 3, 1, ozzero_getsockopt},
+            {"bind", 2, 0, ozzero_bind},
+            {"connect", 2, 0, ozzero_connect},
+            {"unbind", 2, 0, ozzero_unbind},
+            {"disconnect", 2, 0, ozzero_disconnect},
 
             // Message
             {"msgCreate", 0, 1, ozzero_msg_create},
@@ -717,18 +857,11 @@ extern "C"
             {"msgMove", 2, 0, ozzero_msg_move},
             {"msgCopy", 2, 0, ozzero_msg_copy},
             {"msgSetData", 2, 0, ozzero_msg_set_data},
-            {"getmsgopt", 3, 1, ozzero_getmsgopt},
+            {"msgGet", 2, 1, ozzero_msg_get},
+            {"msgSet", 3, 0, ozzero_msg_set},
             {"msgCreateWithData", 1, 1, ozzero_msg_create_with_data},
-
-            // Socket
-            {"socket", 2, 1, ozzero_socket},
-            {"close", 1, 0, ozzero_close},
-            {"setsockopt", 4, 0, ozzero_setsockopt},
-            {"getsockopt", 3, 1, ozzero_getsockopt},
-            {"bind", 2, 0, ozzero_bind},
-            {"connect", 2, 0, ozzero_connect},
-            {"sendmsg", 3, 1, ozzero_sendmsg},
-            {"recvmsg", 3, 1, ozzero_recvmsg},
+            {"msgSend", 3, 1, ozzero_msg_send},
+            {"msgRecv", 3, 1, ozzero_msg_recv},
 
             {NULL}
         };

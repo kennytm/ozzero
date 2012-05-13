@@ -84,19 +84,13 @@ namespace Ozzero
     template <typename Self, typename WrappedType, const int& g_id_ref>
     class ExtensionBase : public OZ_Extension
     {
-    protected:
+    public:
         /** Access the wrapped object. */
         WrappedType _obj;
 
-    public:
         virtual OZ_Extension* sCloneV() { Assert(0); return NULL; }
         virtual void gCollectRecurseV() {}
         virtual void sCloneRecurseV() {}
-
-        WrappedType* get()
-        {
-            return static_cast<Self*>(this)->is_valid() ? &_obj : NULL;
-        }
 
         virtual int getIdV() { return g_id_ref; }
 
@@ -108,7 +102,7 @@ namespace Ozzero
         }
 
         /** Coerce the Oz term into a pointer of this type. */
-        static Self* get(OZ_Term term)
+        static Self* coerce(OZ_Term term)
         {
             term = OZ_deref(term);
             Assert(OZ_isExtension(term));
@@ -151,7 +145,21 @@ namespace Ozzero
 
     */
     #define OZ_declare(Suffix, argNum, varName) \
-        OZ_declareType(argNum, varName, Suffix*, #Suffix, Suffix::is, Suffix::get)
+        OZ_declareType(argNum, varName, Suffix*, #Suffix, Suffix::is, Suffix::coerce)
+
+    /** Declare an input argument atom, and fetch an integer from the map.
+    Returns an OZ_typeError if the atom does not exist in the map. */
+    #define OZ_declareAndDecode(map, mapName, argNum, varName) \
+        typeof(map.begin()->second) varName; \
+        do \
+        { \
+            OZ_declareAtom(argNum, _xx_opt); \
+            typeof(map.begin()) _xx_cit = map.find(_xx_opt); \
+            if (_xx_cit == map.end()) \
+                return OZ_typeError(argNum, mapName); \
+            varName = _xx_cit->second; \
+        } while(0)
+
 
     /** Convert an Oz-term to an int64_t */
     static inline int64_t OZ_intToCint64(OZ_Term term)

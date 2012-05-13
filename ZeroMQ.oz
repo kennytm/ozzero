@@ -36,7 +36,7 @@ export
     init: Init
 
 define
-    RegisterContext = {Finalize.guardian ZN.term}
+    RegisterContext = {Finalize.guardian ZN.ctxDestroy}
     RegisterSocket = {Finalize.guardian ZN.close}
 
     Version = {ZN.version}
@@ -81,6 +81,14 @@ define
         ipv4only: int
         subscribe: 255
         unsubscribe: 255
+        lastEndpoint: 255   % this can be arbitrarily long...
+        failUnroutable: int
+        tcpKeepalive: int
+        tcpKeepaliveIdle: int
+        tcpKeepaliveCnt: int
+        tcpKeepaliveIntvl: int
+        tcpAcceptFilter: 255    % this can be arbitrarily long...
+        % 'monitor' is not supported yet.
     )
 
     % Wrapper of a ZeroMQ socket
@@ -110,8 +118,8 @@ define
 
         % get socket options
         meth get(...) = M
-            {Record.forAllInd M proc {$ I A}
-                A = {ZN.getsockopt self.NativeSocket I SockOptTypes.I $}
+            {Record.forAllInd M fun {$ I}
+                {ZN.getsockopt self.NativeSocket I SockOptTypes.I $}
             end}
         end
 
@@ -120,7 +128,7 @@ define
             BS = if {IsByteString VS} then VS else {ByteString.make VS} end
             NativeMessage = {ZN.msgCreateWithData {ByteString.make BS}}
         in
-            {ZN.sendmsg self.NativeSocket NativeMessage nil _}
+            {ZN.msgSend NativeMessage self.NativeSocket nil _}
             {ZN.msgClose NativeMessage}
         end
 
@@ -129,8 +137,20 @@ define
             NativeMessage = {ZN.msgCreate}
         in
             {ZN.msgInit NativeMessage}
-            {ZN.recvmsg self.NativeSocket NativeMessage nil _}
+            {ZN.msgRecv NativeMessage self.NativeSocket nil _}
             BS = {ZN.msgData NativeMessage}
+            {ZN.msgClose NativeMessage}
+        end
+
+        % receive a byte string without waiting. If there is no messages yet,
+        % returns 'unit'.
+        meth recvDontWait(?MaybeBS)
+            NativeMessage = {ZN.msgCreate}
+            Completed
+        in
+            {ZN.msgInit NativeMessage}
+            Completed = {ZN.msgRecv NativeMessage self.NativeSocket [dontwait]}
+            MaybeBS = if Completed then {ZN.msgData NativeMessage} else unit end
             {ZN.msgClose NativeMessage}
         end
 
@@ -143,6 +163,16 @@ define
         meth connect(VS)
             {ZN.connect self.NativeSocket VS}
         end
+
+        % unbind from an address
+        meth unbind(VS)
+            {ZN.unbind self.NativeSocket VS}
+        end
+
+        % disconnect from an address
+        meth disconnect(VS)
+            {ZN.disconnect self.NativeSocket VS}
+        end
     end
 
     %---------------------------------------------------------------------------
@@ -154,7 +184,7 @@ define
 
         % Initialize a context
         meth init(iothreads: IoThreads <= 1)
-            self.NativeContext = {ZN.init IoThreads}
+            self.NativeContext = {ZN.ctxNew IoThreads}
             {RegisterContext self.NativeContext}
         end
 
@@ -193,7 +223,21 @@ define
 
         % Terminate the context
         meth close
-            {ZN.term self.NativeContext}
+            {ZN.ctxDestroy self.NativeContext}
+        end
+
+        % Assign options to the context. (Call this before 'socket')
+        meth set(...) = M
+            {Record.forAllInd M proc {$ I A}
+                {ZN.ctxSet self.NativeContext I A}
+            end}
+        end
+
+        % Get options from the context.
+        meth get(...) = M
+            {Record.forAllInd M fun {$ I}
+                {ZN.ctxGet self.NativeContext I}
+            end}
         end
     end
 
