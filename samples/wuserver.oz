@@ -5,27 +5,19 @@
 functor
 import
     ZeroMQ at '../ZeroMQ.ozf'
-    OS
+    Random at 'Random.ozf'
     Application
 
 define
-    % Convenient function to retrieve a (roughly) uniformly random integer.
-    fun {UniformRandom LimitI}
-        MinI MaxI
-    in
-        {OS.randLimits MinI MaxI}
-        (({OS.rand} - MinI) * LimitI) div (MaxI - MinI)
-    end
-
     % Prepare our context and publisher
     Context = {ZeroMQ.init}
     Publisher = {Context bindSocket(pub ['tcp://*:5556' 'ipc://weather.ipc'] $)}
 
     proc {PublisherLoop}
         % Get values that will fool the boss
-        ZipCode = {UniformRandom 100000}
-        Temperature = {UniformRandom 215} - 80
-        RelHumidity = {UniformRandom 50} + 10
+        ZipCode = {Random.uniform 100000}
+        Temperature = {Random.uniformBetween ~80 134}
+        RelHumidity = {Random.uniformBetween 10 59}
         Message = ZipCode#' '#Temperature#' '#RelHumidity
     in
         % Send message to all subscribers
@@ -34,8 +26,7 @@ define
     end
 in
     % Initialize random number generator
-    {OS.srand 0}
-    %{Delay 10000}
+    {Random.seed}
     {PublisherLoop}
 
     {Publisher close}

@@ -6,5 +6,6 @@ makefile(
     depends: o(
         'z14.o': ['z14.cc' 'ozcommon.hh' 'm14/bytedata.hh' 'm14/am.hh']
     )
+    subdirs: ['samples']
 )
 
