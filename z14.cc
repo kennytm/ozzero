@@ -140,6 +140,7 @@ struct AtomDecoder
     std::tr1::unordered_map<std::string, int> ctx_getset_map;
     std::tr1::unordered_map<std::string, int> msg_getset_map;
     std::tr1::unordered_map<std::string, int> send_recv_flags_map;
+    std::tr1::unordered_map<std::string, short> poll_events_map;
 
     AtomDecoder()
     {
@@ -220,6 +221,10 @@ struct AtomDecoder
         send_recv_flags_map.insert(std::make_pair("dontwait", ZMQ_NOBLOCK));
         send_recv_flags_map.insert(std::make_pair("noblock", ZMQ_NOBLOCK));
     #endif
+
+        poll_events_map.insert(std::make_pair("pollin", ZMQ_POLLIN));
+        poll_events_map.insert(std::make_pair("pollout", ZMQ_POLLOUT));
+        poll_events_map.insert(std::make_pair("pollerr", ZMQ_POLLERR));
     }
 };
 
@@ -778,17 +783,9 @@ static OZ_Return send_or_recv(Socket* socket, Message* msg, OZ_Term flags_term,
     ENSURE_VALID(Socket, socket);
     ENSURE_VALID(Message, msg);
 
-    int flags = 0;
-    while (OZ_isCons(flags_term))
-    {
-        const char* flag = OZ_atomToC(OZ_head(flags_term));
-        std::tr1::unordered_map<std::string, int>::const_iterator cit =
-                g_atom_decoder.send_recv_flags_map.find(flag);
-        if (cit == g_atom_decoder.send_recv_flags_map.end())
-            return OZ_typeError(2, "list of send/recv options");
-        flags |= cit->second;
-        flags_term = OZ_tail(flags_term);
-    }
+    int flags;
+    PARSE_FLAGS(g_atom_decoder.send_recv_flags_map, "send/recv options",
+                2, flags_term, flags);
 
     while (true)
     {
@@ -819,6 +816,79 @@ static OZ_Return send_or_recv(Socket* socket, Message* msg, OZ_Term flags_term,
 //------------------------------------------------------------------------------
 //{{{ Poll
 
+/** {ZN.poll ['#'(+Socket +EventsL Action) ...] +Timeout ?Completed ['#'(?Socket ?EventsL Action) ...]} */
+OZ_BI_define(ozzero_poll, 2, 2)
+{
+    OZ_declareDetTerm(0, poll_items_term);
+    OZ_declareLong(1, timeout);
+
+    OZ_Term socket_atom = OZ_atom("socket");
+    OZ_Term events_atom = OZ_atom("events");
+    OZ_Term action_atom = OZ_atom("action");
+
+    std::vector<zmq_pollitem_t> poll_items;
+    std::vector<OZ_Term> actions;
+
+    while (OZ_isCons(poll_items_term))
+    {
+        OZ_Term poll_item_term = OZ_head(poll_items_term);
+        if (!OZ_isTuple(poll_item_term) || OZ_width(poll_item_term) != 3)
+            return OZ_typeError(0, "list of 3-tuples");
+
+        OZ_Term socket_term = OZ_getArg(poll_item_term, 0);
+        OZ_Term events_term = OZ_getArg(poll_item_term, 1);
+        OZ_Term action_term = OZ_getArg(poll_item_term, 2);
+
+        Socket* socket = Socket::coerce(socket_term);
+        ENSURE_VALID(Socket, socket);
+        short events;
+        PARSE_FLAGS(g_atom_decoder.poll_events_map, "'pollin' or 'pollout'",
+                    0, events_term, events);
+
+        zmq_pollitem_t poll_item;
+        poll_item.socket = socket->_obj;
+        poll_item.fd = 0;
+        poll_item.events = events;
+        poll_items.push_back(poll_item);
+
+        actions.push_back(action_term);
+
+        poll_items_term = OZ_tail(poll_items_term);
+    }
+
+    int result_count;
+    size_t poll_items_count = poll_items.size();
+    TRAPPING_SIGALRM(result_count = zmq_poll(poll_items.data(), poll_items_count, timeout));
+    OZ_out(0) = (result_count == 0) ? OZ_false() : OZ_true();
+
+    std::vector<OZ_Term> result_terms;
+    result_terms.reserve(result_count);
+    OZ_Term pollin_atom = OZ_atom("pollin");
+    OZ_Term pollout_atom = OZ_atom("pollout");
+    OZ_Term pollerr_atom = OZ_atom("pollerr");
+    for (size_t i = 0; i < poll_items_count; ++ i)
+    {
+        short revents = poll_items[i].revents;
+        if (revents == 0)
+            continue;
+
+        size_t revents_count = 0;
+        OZ_Term revents_terms[3];
+        if (revents & ZMQ_POLLIN)
+            revents_terms[revents_count++] = pollin_atom;
+        if (revents & ZMQ_POLLOUT)
+            revents_terms[revents_count++] = pollout_atom;
+        if (revents & ZMQ_POLLERR)
+            revents_terms[revents_count++] = pollerr_atom;
+
+        OZ_Term revents_term = OZ_toList(revents_count, revents_terms);
+        result_terms.push_back(OZ_pair2(revents_term, actions[i]));
+    }
+    OZ_out(1) = OZ_toList(result_terms.size(), result_terms.data());
+
+    return OZ_ENTAILED;
+}
+OZ_BI_end
 
 //}}}
 //------------------------------------------------------------------------------
@@ -862,6 +932,8 @@ extern "C"
             {"msgCreateWithData", 1, 1, ozzero_msg_create_with_data},
             {"msgSend", 3, 1, ozzero_msg_send},
             {"msgRecv", 3, 1, ozzero_msg_recv},
+
+            {"poll", 2, 2, ozzero_poll},
 
             {NULL}
         };

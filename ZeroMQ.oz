@@ -34,6 +34,7 @@ export
     version: Version
     context: Context
     init: Init
+    poll: Poll
 
 define
     RegisterContext = {Finalize.guardian ZN.ctxDestroy}
@@ -42,6 +43,7 @@ define
     Version = {ZN.version}
 
     InternalInit = {NewName}
+    NativeSocket = {NewName}
 
     fun {SelectType V2Type V3Type}
         if Version.major >= 3 then
@@ -94,7 +96,7 @@ define
     % Wrapper of a ZeroMQ socket
     class Socket
         feat
-            NativeSocket
+            !NativeSocket
 
         meth !InternalInit(NativeContext Type)
             self.NativeSocket = {ZN.socket NativeContext Type}
@@ -244,6 +246,58 @@ define
     % Obtain a default ZeroMQ context
     fun {Init}
         {New Context init}
+    end
+
+    /*
+    Example usage:
+
+        {ZeroMQ.poll  r(
+            r(socket:Socket  events:[pollin pollout]  action: proc {$ Socket Events} ... end)
+            r(socket:Socket  events:pollin  action: proc {$ Socket Events} ... end)
+            timeout: 5000
+            completed: Completed
+        )}
+    */
+    proc {Poll PollSpec}
+        PollItems
+        Timeout
+        Completed
+        SocketSpecs
+
+        fun {ToNative SocketSpec}
+            Socket = SocketSpec.socket
+            NSocket = Socket.NativeSocket
+        in
+            '#'(NSocket SocketSpec.events Socket#SocketSpec.action)
+        end
+    in
+        o(PollItems Timeout Completed) = {Record.foldRInd PollSpec
+            fun {$ I A o(PollItemsP TimeoutP CompletedP)}
+                case I
+                of timeout then
+                    o(PollItemsP A CompletedP)
+                [] completed then
+                    o(PollItemsP TimeoutP A)
+                else
+                    if {IsInt I} then
+                        if {IsList A} then
+                            o({Append {Map ToNative A} PollItemsP} TimeoutP CompletedP)
+                        else
+                            o({ToNative A}|PollItemsP TimeoutP CompletedP)
+                        end
+                    else
+                        {Exception.raiseError zmqError(typeError 'poll: Unexpected feature '#I)}
+                        o(PollItemsP TimeoutP CompletedP)
+                    end
+                end
+            end
+        o(nil ~1 _)}
+
+        {ZN.poll PollItems Timeout Completed SocketSpecs}
+
+        for EventsL#(Socket#Action) in SocketSpecs do
+            {Action Socket EventsL}
+        end
     end
 end
 

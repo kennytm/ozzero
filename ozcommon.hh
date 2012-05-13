@@ -68,7 +68,7 @@ namespace Ozzero
     */
     #define TRAPPING_SIGALRM(...) \
         do { \
-            while ((__VA_ARGS__)) \
+            while ((__VA_ARGS__) < 0) \
             { \
                 if (errno == EINTR && !am.isSetSFlag(SigPending)) \
                     continue; \
@@ -219,6 +219,47 @@ namespace Ozzero
     #define ENSURE_VALID(Type, inst) \
         if (!inst->is_valid()) \
             return OZ_raiseErrorC("zmqError", 2, OZ_int(-1), OZ_atom(#Type " is already closed."))
+
+    /** Parse a list of flags from 'termVar' into 'flagsVar', or return a
+    typeError. */
+    // Cannot be inline function because of the 'return typeError'...
+    #define PARSE_FLAGS(map, mapName, argNum, termVar, flagsVar) \
+        do { \
+            flagsVar = 0; \
+            bool _xx_proceed = true; \
+            while (_xx_proceed) \
+            { \
+                OZ_Term _xx_cur_term; \
+                if (OZ_isCons(termVar)) \
+                { \
+                    _xx_cur_term = OZ_head(termVar); \
+                    termVar = OZ_tail(termVar); \
+                } \
+                else if (OZ_isNil(termVar)) \
+                { \
+                    break; \
+                } \
+                else if (OZ_isAtom(termVar)) \
+                { \
+                    _xx_cur_term = termVar; \
+                    _xx_proceed = false; \
+                } \
+                else \
+                { \
+                    return OZ_typeError(argNum, "list of " mapName); \
+                } \
+                \
+                if (!OZ_isAtom(_xx_cur_term)) \
+                    return OZ_typeError(argNum, "list of" mapName); \
+                \
+                typeof(map.end()) cit = map.find(OZ_atomToC(_xx_cur_term)); \
+                if (cit == map.end()) \
+                    return OZ_typeError(argNum, "list of" mapName); \
+                \
+                flagsVar |= cit->second; \
+            } \
+        } while (0)
+
 }
 
 #endif
