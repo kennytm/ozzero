@@ -43,6 +43,53 @@ namespace Ozzero {
 //------------------------------------------------------------------------------
 //{{{ Utility functions
 
+/** Raise an Oz error. Use it like this inside an OZ_BI_define:
+
+    if (some bad condition)
+        return raise_error();
+    else
+        OZ_RETURN(etc);
+*/
+static OZ_Return raise_error()
+{
+    int error_number = errno;
+    const char* error_message = strerror(error_number);
+    const char* error_atom;
+    switch (error_number)
+    {
+    #define DEF_CASE(ErrCode) case ErrCode: error_atom = #ErrCode; break
+        DEF_CASE(EINVAL);
+        DEF_CASE(EPROTONOSUPPORT);
+        DEF_CASE(ENOCOMPATPROTO);
+        DEF_CASE(EADDRINUSE);
+        DEF_CASE(EADDRNOTAVAIL);
+        DEF_CASE(ENODEV);
+        DEF_CASE(ETERM);
+        DEF_CASE(ENOTSOCK);
+        DEF_CASE(EMTHREAD);
+        DEF_CASE(EFAULT);
+        DEF_CASE(EINTR);
+        DEF_CASE(ENOMEM);
+        DEF_CASE(EAGAIN);
+        DEF_CASE(ENOTSUP);
+        DEF_CASE(EFSM);
+        DEF_CASE(EMFILE);
+        DEF_CASE(ENOBUFS);
+        DEF_CASE(ENETDOWN);
+        DEF_CASE(ECONNREFUSED);
+        DEF_CASE(EINPROGRESS);
+        DEF_CASE(EAFNOSUPPORT);
+        DEF_CASE(EHOSTUNREACH);
+        default: error_atom = NULL; break;
+    #undef DEF_CASE
+    }
+
+    OZ_Term err_code = error_atom == NULL ? OZ_int(error_number) : OZ_atom(error_atom);
+    return OZ_raiseErrorC("zmqError", 2, err_code, OZ_atom(error_message));
+}
+
+
+
 /** Get an option value using the method (object->*getter). The type is
 determined using the type 'type_term' at the position 'type_pos' in the
 function. The return value will be put into 'ret_term'. */
@@ -712,7 +759,7 @@ OZ_BI_define(ozzero_msg_set_data, 2, 0)
     snprintf(buffer, sizeof(buffer),
              "Invalid data size: requiring %zu, but %zu is provided",
              required_size, size);
-    return OZ_raiseErrorC("zmqError", 2, OZ_int(-1), OZ_atom(buffer));
+    return OZ_raiseErrorC("zmqError", 2, OZ_atom("invalidDataSize"), OZ_string(buffer));
 }
 OZ_BI_end
 

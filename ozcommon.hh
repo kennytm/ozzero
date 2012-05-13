@@ -44,21 +44,7 @@
 
 namespace Ozzero
 {
-    /** Raise an Oz error. Use it like this inside an OZ_BI_define:
-
-        if (some bad condition)
-            return raise_error();
-        else
-            OZ_RETURN(etc);
-    */
-    static inline OZ_Return raise_error()
-    {
-        int error_number = errno;
-        const char* error_message = strerror(error_number);
-        return OZ_raiseErrorC("zmqError", 2,
-                              OZ_int(error_number),
-                              OZ_atom(error_message));
-    }
+    static OZ_Return raise_error();
 
     /** Raise an Oz error, retry the function if the errno is EINTR. Use it like
     this inside an OZ_BI_define:
@@ -218,7 +204,7 @@ namespace Ozzero
     /** Ensure 'inst' is valid (not closed). */
     #define ENSURE_VALID(Type, inst) \
         if (!inst->is_valid()) \
-            return OZ_raiseErrorC("zmqError", 2, OZ_int(-1), OZ_atom(#Type " is already closed."))
+            return OZ_raiseErrorC("zmqError", 2, OZ_atom("closed"), OZ_atom(#Type " is already closed."))
 
     /** Parse a list of flags from 'termVar' into 'flagsVar', or return a
     typeError. */
