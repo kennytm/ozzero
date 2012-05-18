@@ -188,6 +188,7 @@ struct AtomDecoder
     std::tr1::unordered_map<std::string, int> msg_getset_map;
     std::tr1::unordered_map<std::string, int> send_recv_flags_map;
     std::tr1::unordered_map<std::string, short> poll_events_map;
+    std::tr1::unordered_map<std::string, int> device_type_map;
 
     AtomDecoder()
     {
@@ -272,6 +273,10 @@ struct AtomDecoder
         poll_events_map.insert(std::make_pair("pollin", ZMQ_POLLIN));
         poll_events_map.insert(std::make_pair("pollout", ZMQ_POLLOUT));
         poll_events_map.insert(std::make_pair("pollerr", ZMQ_POLLERR));
+
+        device_type_map.insert(std::make_pair("queue", ZMQ_QUEUE));
+        device_type_map.insert(std::make_pair("forwarder", ZMQ_FORWARDER));
+        device_type_map.insert(std::make_pair("streamer", ZMQ_STREAMER));
     }
 };
 
@@ -939,6 +944,24 @@ OZ_BI_end
 
 //}}}
 //------------------------------------------------------------------------------
+//{{{ Device
+
+/** {ZN.device +DeviceA +FrontendSocket +BackendSocket} */
+OZ_BI_define(ozzero_device, 3, 0)
+{
+    OZ_declareAndDecode(g_atom_decoder.device_type_map, "device type", 0, device);
+    OZ_declare(Socket, 1, frontend);
+    ENSURE_VALID(Socket, frontend);
+    OZ_declare(Socket, 2, backend);
+    ENSURE_VALID(Socket, backend);
+
+    int rc;
+    TRAPPING_SIGALRM(rc = zmq_device(device, frontend->_obj, backend->_obj));
+    return checked(rc);
+}
+OZ_BI_end
+
+//}}}
 
 //#pragma GCC visibility pop
 
@@ -981,6 +1004,7 @@ extern "C"
             {"msgRecv", 3, 1, ozzero_msg_recv},
 
             {"poll", 2, 2, ozzero_poll},
+            {"device", 3, 0, ozzero_device},
 
             {NULL}
         };

@@ -35,6 +35,7 @@ export
     context: Context
     init: Init
     poll: Poll
+    device: Device
 
 define
     RegisterContext = {Finalize.guardian ZN.ctxDestroy}
@@ -324,6 +325,11 @@ define
         for EventsL#(Socket#Action) in SocketSpecs do
             {Action Socket EventsL}
         end
+    end
+
+
+    proc {Device DeviceA FrontendSocket BackendSocket}
+        {ZN.device DeviceA FrontendSocket.NativeSocket BackendSocket.NativeSocket}
     end
 end
 
