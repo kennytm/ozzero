@@ -30,6 +30,7 @@
 #include <mozart.h>
 #include <zmq.h>
 #include <pthread.h>
+#include <time.h>
 #include <vector>
 #include <string>
 #include <tr1/unordered_map>
@@ -98,6 +99,8 @@ static inline OZ_Return get_opt_common(int type_pos, OZ_Term type_term,
                                        int opt_name, OZ_Term& ret_term,
                                        T* object, int (T::*getter)(int, void*, size_t*))
 {
+    bool is_eintr = false;
+
     if (OZ_isAtom(type_term))
     {
         const char* type = OZ_atomToC(type_term);
@@ -107,8 +110,8 @@ static inline OZ_Return get_opt_common(int type_pos, OZ_Term type_term,
             { \
                 TYPE##_t retval; \
                 size_t length = sizeof(retval); \
-                TRAPPING_SIGALRM((object->*getter)(opt_name, &retval, &length)); \
-                ret_term = OZ_##TYPE(retval); \
+                TRAPPING_SIGALRM(is_eintr, (object->*getter)(opt_name, &retval, &length)); \
+                ret_term = is_eintr ? OZ_unit() : OZ_##TYPE(retval); \
                 return OZ_ENTAILED; \
             }
 
@@ -128,8 +131,8 @@ static inline OZ_Return get_opt_common(int type_pos, OZ_Term type_term,
     {
         size_t buffer_length = OZ_intToC(type_term);
         std::vector<char> buffer (buffer_length);
-        TRAPPING_SIGALRM((object->*getter)(opt_name, buffer.data(), &buffer_length));
-        ret_term = OZ_mkByteString(buffer.data(), buffer_length);
+        TRAPPING_SIGALRM(is_eintr, (object->*getter)(opt_name, buffer.data(), &buffer_length));
+        ret_term = is_eintr ? OZ_unit() : OZ_mkByteString(buffer.data(), buffer_length);
         return OZ_ENTAILED;
     }
 
@@ -139,8 +142,11 @@ static inline OZ_Return get_opt_common(int type_pos, OZ_Term type_term,
 template <typename T>
 static inline OZ_Return set_opt_common(int type_pos, OZ_Term type_term,
                                        int opt_name, OZ_Term input_term,
+                                       OZ_Term& interrupted_term,
                                        T* object, int (T::*setter)(int, const void*, size_t))
 {
+    bool is_eintr = false;
+
     if (OZ_isAtom(type_term))
     {
         const char* type = OZ_atomToC(type_term);
@@ -149,7 +155,8 @@ static inline OZ_Return set_opt_common(int type_pos, OZ_Term type_term,
             if (strcmp(type, #TYPE) == 0) \
             { \
                 TYPE##_t value = OZ_intToC##TYPE(input_term); \
-                TRAPPING_SIGALRM((object->*setter)(opt_name, &value, sizeof(value))); \
+                TRAPPING_SIGALRM(is_eintr, (object->*setter)(opt_name, &value, sizeof(value))); \
+                interrupted_term = is_eintr ? OZ_true() : OZ_false(); \
                 return OZ_ENTAILED; \
             }
 
@@ -169,7 +176,8 @@ static inline OZ_Return set_opt_common(int type_pos, OZ_Term type_term,
 
     ByteString* bs = tagged2ByteString(input_term);
 
-    TRAPPING_SIGALRM((object->*setter)(opt_name, bs->getData(), bs->getSize()));
+    TRAPPING_SIGALRM(is_eintr, (object->*setter)(opt_name, bs->getData(), bs->getSize()));
+    interrupted_term = is_eintr ? OZ_true() : OZ_false();
     return OZ_ENTAILED;
 }
 
@@ -289,7 +297,7 @@ class Message;
 
 static OZ_Return send_or_recv(Socket* socket, Message* msg, OZ_Term flags_term,
                               int (Message::*method)(Socket&, int),
-                              OZ_Term& retval);
+                              OZ_Term& retval, OZ_Term& interrupted);
 
 //}}}
 //------------------------------------------------------------------------------
@@ -388,12 +396,13 @@ OZ_BI_define(ozzero_ctx_new, 1, 1)
 }
 OZ_BI_end
 
-/** {ZN.ctxDestroy +Context} */
-OZ_BI_define(ozzero_ctx_destroy, 1, 0)
+/** {ZN.ctxDestroy +Context ?Interrupted} */
+OZ_BI_define(ozzero_ctx_destroy, 1, 1)
 {
     OZ_declare(Context, 0, context);
-    TRAPPING_SIGALRM(context->close());
-    return OZ_ENTAILED;
+    bool is_eintr = false;
+    TRAPPING_SIGALRM(is_eintr, context->close());
+    OZ_RETURN(is_eintr ? OZ_true() : OZ_false());
 }
 OZ_BI_end
 
@@ -504,13 +513,13 @@ OZ_BI_end
 where TypeA should be one of 'int', 'int64', 'uint64' or other things (which
 will be interpreted as 'byteString').
 */
-OZ_BI_define(ozzero_setsockopt, 4, 0)
+OZ_BI_define(ozzero_setsockopt, 4, 1)
 {
     OZ_declare(Socket, 0, socket);
     ENSURE_VALID(Socket, socket);
     OZ_declareAndDecode(g_atom_decoder.sockopt_map, "socket option", 1, real_name);
     OZ_declareDetTerm(2, type_term);
-    return set_opt_common(2, type_term, real_name, OZ_in(3),
+    return set_opt_common(2, type_term, real_name, OZ_in(3), OZ_out(0),
                           socket, &Socket::setsockopt);
 }
 OZ_BI_end
@@ -808,29 +817,31 @@ OZ_BI_define(ozzero_msg_create_with_data, 1, 1)
 }
 OZ_BI_end
 
-/** {ZN.msgSend +Message +Socket +FlagsL ?Completed} */
-OZ_BI_define(ozzero_msg_send, 3, 1)
+/** {ZN.msgSend +Message +Socket +FlagsL ?Completed ?Interrupted} */
+OZ_BI_define(ozzero_msg_send, 3, 2)
 {
     OZ_declare(Message, 0, msg);
     OZ_declare(Socket, 1, socket);
     OZ_declareDetTerm(2, flags_term);
-    return send_or_recv(socket, msg, flags_term, &Message::send, OZ_out(0));
+    return send_or_recv(socket, msg, flags_term, &Message::send,
+                        OZ_out(0), OZ_out(1));
 }
 OZ_BI_end
 
-/** {ZN.msgRecv +Message +Socket +FlagsL ?Completed} */
-OZ_BI_define(ozzero_msg_recv, 3, 1)
+/** {ZN.msgRecv +Message +Socket +FlagsL ?Completed ?Interrupted} */
+OZ_BI_define(ozzero_msg_recv, 3, 2)
 {
     OZ_declare(Message, 0, msg);
     OZ_declare(Socket, 1, socket);
     OZ_declareDetTerm(2, flags_term);
-    return send_or_recv(socket, msg, flags_term, &Message::recv, OZ_out(0));
+    return send_or_recv(socket, msg, flags_term, &Message::recv,
+                        OZ_out(0), OZ_out(1));
 }
 OZ_BI_end
 
 static OZ_Return send_or_recv(Socket* socket, Message* msg, OZ_Term flags_term,
                               int (Message::*method)(Socket&, int),
-                              OZ_Term& retval)
+                              OZ_Term& retval, OZ_Term& interrupted)
 {
     ENSURE_VALID(Socket, socket);
     ENSURE_VALID(Message, msg);
@@ -839,27 +850,28 @@ static OZ_Return send_or_recv(Socket* socket, Message* msg, OZ_Term flags_term,
     PARSE_FLAGS(g_atom_decoder.send_recv_flags_map, "send/recv options",
                 2, flags_term, flags);
 
-    while (true)
+    interrupted = OZ_false();
+    if ((msg->*method)(*socket, flags) >= 0)
     {
-        if ((msg->*method)(*socket, flags) >= 0)
+        retval = OZ_true();
+        return OZ_ENTAILED;
+    }
+    else {
+        int error_number = errno;
+        switch (error_number)
         {
-            retval = OZ_true();
-            return OZ_ENTAILED;
-        }
-        else {
-            int error_number = errno;
-            switch (error_number)
-            {
-                case EAGAIN:
-                    retval = OZ_false();
+            case EAGAIN:
+                retval = OZ_false();
+                return OZ_ENTAILED;
+            case EINTR:
+                if (!am.isSetSFlag(SigPending))
+                {
+                    interrupted = OZ_true();
                     return OZ_ENTAILED;
-                case EINTR:
-                    if (!am.isSetSFlag(SigPending))
-                        break;
-                    // else fallthrough
-                default:
-                    return raise_error();
-            }
+                }
+                // else fallthrough
+            default:
+                return raise_error();
         }
     }
 }
@@ -868,8 +880,13 @@ static OZ_Return send_or_recv(Socket* socket, Message* msg, OZ_Term flags_term,
 //------------------------------------------------------------------------------
 //{{{ Poll
 
-/** {ZN.poll ['#'(+Socket +EventsL Action) ...] +Timeout ?Completed ['#'(?Socket ?EventsL Action) ...]} */
-OZ_BI_define(ozzero_poll, 2, 2)
+/** {ZN.poll
+        ['#'(+Socket +EventsL Action) ...]
+        +Timeout
+        ?Completed
+        ['#'(?Socket ?EventsL Action) ...]
+        ?InterruptedNewTimeout} */
+OZ_BI_define(ozzero_poll, 2, 3)
 {
     OZ_declareDetTerm(0, poll_items_term);
     OZ_declareLong(1, timeout);
@@ -909,35 +926,67 @@ OZ_BI_define(ozzero_poll, 2, 2)
     }
 
     int result_count;
+
     size_t poll_items_count = poll_items.size();
-    TRAPPING_SIGALRM(result_count = zmq_poll(poll_items.data(), poll_items_count, timeout));
+
+    bool is_eintr = false;
+    timespec start_time;
+    clock_gettime(CLOCK_MONOTONIC, &start_time);
+    TRAPPING_SIGALRM(is_eintr,
+        result_count = zmq_poll(poll_items.data(), poll_items_count, timeout)
+    );
+    if (!is_eintr)
+    {
+        OZ_out(2) = OZ_unit();
+    }
+    else
+    {
+        if (timeout > 0)
+        {
+            timespec end_time;
+            clock_gettime(CLOCK_MONOTONIC, &end_time);
+            long time_elapsed = (end_time.tv_sec - start_time.tv_sec) * 1000;
+            time_elapsed += (end_time.tv_nsec - start_time.tv_nsec) / 1000000;
+            OZ_out(2) = OZ_long(timeout - time_elapsed);
+        }
+        else
+        {
+            OZ_out(2) = OZ_long(timeout);
+        }
+    }
     OZ_out(0) = (result_count == 0) ? OZ_false() : OZ_true();
 
-    std::vector<OZ_Term> result_terms;
-    result_terms.reserve(result_count);
-    OZ_Term pollin_atom = OZ_atom("pollin");
-    OZ_Term pollout_atom = OZ_atom("pollout");
-    OZ_Term pollerr_atom = OZ_atom("pollerr");
-    for (size_t i = 0; i < poll_items_count; ++ i)
+    if (result_count <= 0)
     {
-        short revents = poll_items[i].revents;
-        if (revents == 0)
-            continue;
-
-        size_t revents_count = 0;
-        OZ_Term revents_terms[3];
-        if (revents & ZMQ_POLLIN)
-            revents_terms[revents_count++] = pollin_atom;
-        if (revents & ZMQ_POLLOUT)
-            revents_terms[revents_count++] = pollout_atom;
-        if (revents & ZMQ_POLLERR)
-            revents_terms[revents_count++] = pollerr_atom;
-
-        OZ_Term revents_term = OZ_toList(revents_count, revents_terms);
-        result_terms.push_back(OZ_pair2(revents_term, actions[i]));
+        OZ_out(1) = OZ_nil();
     }
-    OZ_out(1) = OZ_toList(result_terms.size(), result_terms.data());
+    else
+    {
+        std::vector<OZ_Term> result_terms;
+        result_terms.reserve(result_count);
+        OZ_Term pollin_atom = OZ_atom("pollin");
+        OZ_Term pollout_atom = OZ_atom("pollout");
+        OZ_Term pollerr_atom = OZ_atom("pollerr");
+        for (size_t i = 0; i < poll_items_count; ++ i)
+        {
+            short revents = poll_items[i].revents;
+            if (revents == 0)
+                continue;
 
+            size_t revents_count = 0;
+            OZ_Term revents_terms[3];
+            if (revents & ZMQ_POLLIN)
+                revents_terms[revents_count++] = pollin_atom;
+            if (revents & ZMQ_POLLOUT)
+                revents_terms[revents_count++] = pollout_atom;
+            if (revents & ZMQ_POLLERR)
+                revents_terms[revents_count++] = pollerr_atom;
+
+            OZ_Term revents_term = OZ_toList(revents_count, revents_terms);
+            result_terms.push_back(OZ_pair2(revents_term, actions[i]));
+        }
+        OZ_out(1) = OZ_toList(result_terms.size(), result_terms.data());
+    }
     return OZ_ENTAILED;
 }
 OZ_BI_end
@@ -946,8 +995,8 @@ OZ_BI_end
 //------------------------------------------------------------------------------
 //{{{ Device
 
-/** {ZN.device +DeviceA +FrontendSocket +BackendSocket} */
-OZ_BI_define(ozzero_device, 3, 0)
+/** {ZN.device +DeviceA +FrontendSocket +BackendSocket ?Interrupted} */
+OZ_BI_define(ozzero_device, 3, 1)
 {
     OZ_declareAndDecode(g_atom_decoder.device_type_map, "device type", 0, device);
     OZ_declare(Socket, 1, frontend);
@@ -956,8 +1005,12 @@ OZ_BI_define(ozzero_device, 3, 0)
     ENSURE_VALID(Socket, backend);
 
     int rc;
-    TRAPPING_SIGALRM(rc = zmq_device(device, frontend->_obj, backend->_obj));
-    return checked(rc);
+    bool is_eintr = false;
+    TRAPPING_SIGALRM(is_eintr, rc = zmq_device(device, frontend->_obj, backend->_obj));
+    if (!is_eintr && rc)
+        return raise_error();
+    else
+        OZ_RETURN(is_eintr ? OZ_true() : OZ_false());
 }
 OZ_BI_end
 
@@ -974,14 +1027,14 @@ extern "C"
 
             // Context
             {"ctxNew", 1, 1, ozzero_ctx_new},
-            {"ctxDestroy", 1, 0, ozzero_ctx_destroy},
+            {"ctxDestroy", 1, 1, ozzero_ctx_destroy},
             {"ctxGet", 2, 1, ozzero_ctx_get},
             {"ctxSet", 3, 0, ozzero_ctx_set},
 
             // Socket
             {"socket", 2, 1, ozzero_socket},
             {"close", 1, 0, ozzero_close},
-            {"setsockopt", 4, 0, ozzero_setsockopt},
+            {"setsockopt", 4, 1, ozzero_setsockopt},
             {"getsockopt", 3, 1, ozzero_getsockopt},
             {"bind", 2, 0, ozzero_bind},
             {"connect", 2, 0, ozzero_connect},
@@ -1000,11 +1053,11 @@ extern "C"
             {"msgGet", 2, 1, ozzero_msg_get},
             {"msgSet", 3, 0, ozzero_msg_set},
             {"msgCreateWithData", 1, 1, ozzero_msg_create_with_data},
-            {"msgSend", 3, 1, ozzero_msg_send},
-            {"msgRecv", 3, 1, ozzero_msg_recv},
+            {"msgSend", 3, 2, ozzero_msg_send},
+            {"msgRecv", 3, 2, ozzero_msg_recv},
 
-            {"poll", 2, 2, ozzero_poll},
-            {"device", 3, 0, ozzero_device},
+            {"poll", 2, 3, ozzero_poll},
+            {"device", 3, 1, ozzero_device},
 
             {NULL}
         };

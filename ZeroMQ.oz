@@ -28,7 +28,7 @@ functor
 import
     ZN at 'z14.so{native}'
     Finalize
-    %ByteString
+    %System
 
 export
     version: Version
@@ -53,6 +53,23 @@ define
             V2Type
         end
     end
+
+    fun {LoopFuncUntilFalse Func}
+        RealRes
+    in
+        if {Func RealRes} then
+            {LoopFuncUntilFalse Func}
+        else
+            RealRes
+        end
+    end
+
+    proc {LoopProcUntilFalse Proc}
+        if {Proc} then
+            {LoopProcUntilFalse Proc}
+        end
+    end
+
 
     %---------------------------------------------------------------------------
 
@@ -115,14 +132,19 @@ define
                 OptType = SockOptTypes.I
                 Value = if {IsInt OptType} then {ByteString.make A} else A end
             in
-                {ZN.setsockopt self.NativeSocket I OptType Value}
+                {LoopProcUntilFalse fun {$}
+                    {ZN.setsockopt self.NativeSocket I OptType Value}
+                end}
             end}
         end
 
         % get socket options
         meth get(...) = M
             {Record.forAllInd M fun {$ I}
-                {ZN.getsockopt self.NativeSocket I SockOptTypes.I $}
+                {LoopFuncUntilFalse fun {$ Res}
+                    Res = {ZN.getsockopt self.NativeSocket I SockOptTypes.I}
+                    Res == unit
+                end}
             end}
         end
 
@@ -132,7 +154,9 @@ define
             NativeMessage = {ZN.msgCreateWithData {ByteString.make BS}}
             Options = if SndMore then sndmore else nil end
         in
-            {ZN.msgSend NativeMessage self.NativeSocket Options _}
+            {LoopProcUntilFalse fun {$}
+                {ZN.msgSend NativeMessage self.NativeSocket Options _}
+            end}
             {ZN.msgClose NativeMessage}
         end
 
@@ -141,7 +165,9 @@ define
             NativeMessage = {ZN.msgCreate}
         in
             {ZN.msgInit NativeMessage}
-            {ZN.msgRecv NativeMessage self.NativeSocket nil _}
+            {LoopProcUntilFalse fun {$}
+                {ZN.msgRecv NativeMessage self.NativeSocket nil _}
+            end}
             BS = {ZN.msgData NativeMessage}
             {ZN.msgClose NativeMessage}
             if {Not {IsDet RcvMore}} then
@@ -176,7 +202,9 @@ define
             Completed
         in
             {ZN.msgInit NativeMessage}
-            Completed = {ZN.msgRecv NativeMessage self.NativeSocket [dontwait]}
+            Completed = {LoopFuncUntilFalse fun {$ R}
+                {ZN.msgRecv NativeMessage self.NativeSocket [dontwait] R}
+            end}
             MaybeBS = if Completed then {ZN.msgData NativeMessage} else unit end
             {ZN.msgClose NativeMessage}
         end
@@ -250,7 +278,9 @@ define
 
         % Terminate the context
         meth close
-            {ZN.ctxDestroy self.NativeContext}
+            {LoopProcUntilFalse fun {$}
+                {ZN.ctxDestroy self.NativeContext}
+            end}
         end
 
         % Assign options to the context. (Call this before 'socket')
@@ -287,7 +317,6 @@ define
         PollItems
         Timeout
         Completed
-        SocketSpecs
 
         RealPollSpec = if {IsList PollSpec} then {List.toTuple r PollSpec} else PollSpec end
 
@@ -296,6 +325,21 @@ define
             NSocket = Socket.NativeSocket
         in
             '#'(NSocket SocketSpec.events Socket#SocketSpec.action)
+        end
+
+        proc {DoPoll CurTimeout ?RealCompleted ?RealSocketSpecs}
+            CurCompleted
+            CurSocketSpecs
+            NewTimeout = {ZN.poll PollItems CurTimeout CurCompleted CurSocketSpecs}
+        in
+            if NewTimeout \= unit then
+                TheTimeout = if (NewTimeout < 0) \= (CurTimeout < 0) then 1 else NewTimeout end
+            in
+                {DoPoll TheTimeout RealCompleted RealSocketSpecs}
+            else
+                RealCompleted = CurCompleted
+                RealSocketSpecs = CurSocketSpecs
+            end
         end
     in
         o(PollItems Timeout Completed) = {Record.foldRInd RealPollSpec
@@ -320,16 +364,16 @@ define
             end
         o(nil ~1 _)}
 
-        {ZN.poll PollItems Timeout Completed SocketSpecs}
-
-        for EventsL#(Socket#Action) in SocketSpecs do
+        for EventsL#(Socket#Action) in {DoPoll Timeout Completed} do
             {Action Socket EventsL}
         end
     end
 
 
     proc {Device DeviceA FrontendSocket BackendSocket}
-        {ZN.device DeviceA FrontendSocket.NativeSocket BackendSocket.NativeSocket}
+        {LoopProcUntilFalse fun {$}
+            {ZN.device DeviceA FrontendSocket.NativeSocket BackendSocket.NativeSocket}
+        end}
     end
 end
 

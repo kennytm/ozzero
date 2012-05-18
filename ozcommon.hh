@@ -49,16 +49,21 @@ namespace Ozzero
     /** Raise an Oz error, retry the function if the errno is EINTR. Use it like
     this inside an OZ_BI_define:
 
-        TRAPPING_SIGALRM(some function);
-        OZ_RETURN(etc);
+        bool is_eintr = false;
+        TRAPPING_SIGALRM(is_eintr, some function);
+        if (is_eintr)
+            OZ_RETURN(OZ_unit());
+        else
+            OZ_RETURN(etc);
     */
-    #define TRAPPING_SIGALRM(...) \
+    #define TRAPPING_SIGALRM(is_eintr, ...) \
         do { \
-            while ((__VA_ARGS__) < 0) \
+            if ((__VA_ARGS__) < 0) \
             { \
                 if (errno == EINTR && !am.isSetSFlag(SigPending)) \
-                    continue; \
-                return raise_error(); \
+                    is_eintr = true; \
+                else \
+                    return raise_error(); \
             } \
         } while(0)
 
