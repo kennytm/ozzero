@@ -126,22 +126,46 @@ define
         end
 
         % send a virtual string or byte string
-        meth send(VS)
+        meth send(VS  more:SndMore<=false)
             BS = if {IsByteString VS} then VS else {ByteString.make VS} end
             NativeMessage = {ZN.msgCreateWithData {ByteString.make BS}}
+            Options = if SndMore then sndmore else nil end
         in
-            {ZN.msgSend NativeMessage self.NativeSocket nil _}
+            {ZN.msgSend NativeMessage self.NativeSocket Options _}
             {ZN.msgClose NativeMessage}
         end
 
         % receive a byte string
-        meth recv(?BS)
+        meth recv(?BS  more:?RcvMore<=false)
             NativeMessage = {ZN.msgCreate}
         in
             {ZN.msgInit NativeMessage}
             {ZN.msgRecv NativeMessage self.NativeSocket nil _}
             BS = {ZN.msgData NativeMessage}
             {ZN.msgClose NativeMessage}
+            if {Not {IsDet RcvMore}} then
+                RcvMore = {self get(rcvmore:$)} \= 0
+            end
+        end
+
+        % send a multipart message
+        meth sendMulti(VSL)
+            case VSL
+            of H|nil then
+                {self send(H)}
+            [] H|T then
+                {self send(H  more:true)}
+                {self sendMulti(T)}
+            end
+        end
+
+        % receive a multipart message
+        meth recvMulti($)
+            BS  More  Tail
+        in
+            {self recv(BS  more:More)}
+            Tail = if More then {self recvMulti($)} else nil end
+            BS|Tail
         end
 
         % receive a byte string without waiting. If there is no messages yet,
@@ -264,6 +288,8 @@ define
         Completed
         SocketSpecs
 
+        RealPollSpec = if {IsList PollSpec} then {List.toTuple r PollSpec} else PollSpec end
+
         fun {ToNative SocketSpec}
             Socket = SocketSpec.socket
             NSocket = Socket.NativeSocket
@@ -271,7 +297,7 @@ define
             '#'(NSocket SocketSpec.events Socket#SocketSpec.action)
         end
     in
-        o(PollItems Timeout Completed) = {Record.foldRInd PollSpec
+        o(PollItems Timeout Completed) = {Record.foldRInd RealPollSpec
             fun {$ I A o(PollItemsP TimeoutP CompletedP)}
                 case I
                 of timeout then
