@@ -11,7 +11,7 @@ import
 define
     % Prepare our context and publisher
     Context = {ZeroMQ.init}
-    Publisher = {Context bindSocket(pub ['tcp://*:5556' 'ipc://weather.ipc'] $)}
+    Publisher = {Context bind(pub(['tcp://*:5556' 'ipc://weather.ipc']) $)}
 
     proc {PublisherLoop}
         % Get values that will fool the boss

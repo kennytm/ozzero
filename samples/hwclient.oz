@@ -11,7 +11,7 @@ import
 define
     % Socket to talk to server
     Context = {ZeroMQ.init}
-    Socket = {Context connectSocket(req 'tcp://localhost:5555' $)}
+    Socket = {Context connect(req('tcp://localhost:5555') $)}
 in
     for I in 1..10 do
         {System.showInfo "Sending Hello "#I#"..."}

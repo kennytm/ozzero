@@ -12,7 +12,7 @@ define
     Context = {ZeroMQ.init}
 
     % Socket to talk to clients
-    Responder = {Context connectSocket(rep 'tcp://localhost:5560' $)}
+    Responder = {Context connect(rep('tcp://localhost:5560') $)}
 
     proc {ServerLoop}
         % Wait for next request from client

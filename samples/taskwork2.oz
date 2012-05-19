@@ -11,13 +11,13 @@ define
     Context = {ZeroMQ.init}
 
     % Socket to receive messages on
-    Receiver = {Context connectSocket(pull 'tcp://localhost:5557' $)}
+    Receiver = {Context connect(pull('tcp://localhost:5557') $)}
 
     % Socket to send messages to
-    Sender = {Context connectSocket(push 'tcp://localhost:5558' $)}
+    Sender = {Context connect(push('tcp://localhost:5558') $)}
 
     % Socket for control input
-    Controller = {Context connectSocket(sub 'tcp://localhost:5559' $)}
+    Controller = {Context connect(sub('tcp://localhost:5559' subscribe:nil) $)}
 
     proc {WorkerLoop}
         Continue = {NewCell true}
@@ -46,8 +46,6 @@ define
         end
     end
 in
-    {Controller set(subscribe:nil)}
-
     {WorkerLoop}
 
     % Finished

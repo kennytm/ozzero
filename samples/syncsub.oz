@@ -13,7 +13,7 @@ define
     PID = {OS.getPID}
 
     % First, connect our subscriber socket
-    Subscriber = {Context socket(sub $)}
+    Subscriber = {Context connect(sub('tcp://localhost:5561' subscribe:nil) $)}
     Syncclient
 
     MessageCount = {NewCell 0}
@@ -32,14 +32,11 @@ define
     end
 
 in
-    {Subscriber set(subscribe:nil)}
-    {Subscriber connect('tcp://localhost:5561')}
-
     % 0MQ is so fast, we need to wait a while...
     {Delay 1000}
 
     % Second, synchronize with publisher
-    Syncclient = {Context connectSocket(req 'tcp://localhost:5562' $)}
+    Syncclient = {Context connect(req('tcp://localhost:5562') $)}
 
     % - send a synchronization request
     {Syncclient send(nil)}

@@ -21,17 +21,17 @@ define
     end
 
     % Socket to talk to clients
-    Clients = {Context bindSocket(router 'tcp://*:5555' $)}
+    Clients = {Context bind(router('tcp://*:5555') $)}
 
     % Socket to talk to workers
-    Workers = {Context bindSocket(dealer 'inproc://workers' $)}
+    Workers = {Context bind(dealer('inproc://workers') $)}
 
 in
     % Launch pool of worker threads
     for _ in 1..5 do
         thread
             % Socket to talk to dispatcher
-            Receiver = {Context connectSocket(rep 'inproc://workers' $)}
+            Receiver = {Context connect(rep('inproc://workers') $)}
         in
             {WorkerRoutine Receiver}
             {Receiver close}

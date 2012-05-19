@@ -12,7 +12,7 @@ define
 
     proc {Step1}
         % Connect to step2 and tell it we're ready
-        Xmitter = {Context connectSocket(pair 'inproc://step2' $)}
+        Xmitter = {Context connect(pair('inproc://step2') $)}
     in
         {System.showInfo 'Step 1 ready, signaling step 2'}
         {Xmitter send('READY')}
@@ -22,7 +22,7 @@ define
 
     proc {Step2}
         % Bind inproc socket before starting step1
-        Receiver = {Context bindSocket(pair 'inproc://step2' $)}
+        Receiver = {Context bind(pair('inproc://step2') $)}
         Xmitter
     in
         thread {Step1} end
@@ -32,14 +32,14 @@ define
         {Receiver close}
 
         % Connect to step3 and tell it we're ready
-        Xmitter = {Context connectSocket(pair 'inproc://step3' $)}
+        Xmitter = {Context connect(pair('inproc://step3') $)}
         {System.showInfo 'Step 2 ready, signaling step 3'}
         {Xmitter send('READY')}
         {Xmitter close}
     end
 
     % Bind inproc socket before starting step2
-    Receiver = {Context bindSocket(pair 'inproc://step3' $)}
+    Receiver = {Context bind(pair('inproc://step3') $)}
 in
     thread {Step2} end
 

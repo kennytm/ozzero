@@ -9,14 +9,12 @@ define
     Context = {ZeroMQ.init}
 
     % This is where the weather server sits
-    Frontend = {Context connectSocket(sub 'tcp://localhost:5556' $)}
+    % (Subscribe on everything)
+    Frontend = {Context connect(sub('tcp://localhost:5556' subscribe:nil) $)}
 
     % This is our public endpoint for subscribers
-    Backend = {Context bindSocket(pub 'tcp://*:8100' $)}
+    Backend = {Context bind(pub('tcp://*:8100') $)}
 in
-    % Subscribe on everything
-    {Frontend set(subscribe:nil)}
-
     % Shunt messages out to our own subscribers
     for _ in _;_ do
         % Process all parts of the message

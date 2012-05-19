@@ -10,10 +10,10 @@ define
     Context = {ZeroMQ.init}
 
     % Socket facing clients
-    Frontend = {Context bindSocket(router 'tcp://*:5559' $)}
+    Frontend = {Context bind(router('tcp://*:5559') $)}
 
     % Socket facing services
-    Backend = {Context bindSocket(dealer 'tcp://*:5560' $)}
+    Backend = {Context bind(dealer('tcp://*:5560') $)}
 in
     % Start built-in device
     {ZeroMQ.device queue Frontend Backend}

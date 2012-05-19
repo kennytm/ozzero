@@ -12,10 +12,10 @@ define
     Context = {ZeroMQ.init}
 
     % Connect to task ventilator
-    Receiver = {Context connectSocket(pull 'tcp://localhost:5557' $)}
+    Receiver = {Context connect(pull('tcp://localhost:5557') $)}
 
     % Connect to weather server
-    Subscriber = {Context connectSocket(sub 'tcp://localhost:5556' $)}
+    Subscriber = {Context connect(sub('tcp://localhost:5556' subscribe:'10001 ') $)}
 
     % Process messages from both sockets
     % We prioritize traffic from the task ventilator
@@ -42,9 +42,6 @@ define
     end
 
 in
-    {System.showInfo 1}
-    {Subscriber set(subscribe:'10001 ')}
-    {System.showInfo 1}
     {ProcessLoop}
 
     % We never get here but clean up anyhow

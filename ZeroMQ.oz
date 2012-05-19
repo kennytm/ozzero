@@ -256,32 +256,31 @@ define
             {New Socket InternalInit(self.NativeContext Type)}
         end
 
-        % Create a socket and bind many addresses to it.
-        meth bindSocket(Type AddrVSL $)
+        meth ConnectOrBindSocket(Method M $)
+            Type = {Label M}
+            AddrVSL = M.1
             Socket = {self socket(Type $)}
+            SetOptions = {Adjoin {Record.subtract M 1} set()}
         in
+            {Socket SetOptions}
             if {IsVirtualString AddrVSL} then
-                {Socket bind(AddrVSL)}
+                {Socket Method(AddrVSL)}
             else
                 for AddrVS in AddrVSL do
-                    {Socket bind(AddrVS)}
+                    {Socket Method(AddrVS)}
                 end
             end
             Socket
         end
 
+        % Create a socket and bind many addresses to it.
+        meth bind(M $)
+            {self ConnectOrBindSocket(bind M $)}
+        end
+
         % Create a socket and connect it to many addresses.
-        meth connectSocket(Type AddrVSL $)
-            Socket = {self socket(Type $)}
-        in
-            if {IsVirtualString AddrVSL} then
-                {Socket connect(AddrVSL)}
-            else
-                for AddrVS in AddrVSL do
-                    {Socket connect(AddrVS)}
-                end
-            end
-            Socket
+        meth connect(M $)
+            {self ConnectOrBindSocket(connect M $)}
         end
 
         % Terminate the context

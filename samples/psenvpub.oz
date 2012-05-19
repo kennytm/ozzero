@@ -8,7 +8,7 @@ import
 define
     % Prepare our context and publisher
     Context = {ZeroMQ.init}
-    Publisher = {Context bindSocket(pub 'tcp://*:5563' $)}
+    Publisher = {Context bind(pub('tcp://*:5563') $)}
 
     proc {PublisherLoop}
         % Write two messages, each with an envelope and content

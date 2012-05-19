@@ -35,15 +35,13 @@ define
 
     % Socket to talk to server
     Context = {ZeroMQ.init}
-    Subscriber = {Context connectSocket(sub 'tcp://localhost:'#Port $)}
-
+    Subscriber = {Context connect(sub('tcp://localhost:'#Port subscribe:ZipCode#' ') $)}
 
     TotalTemperature
     AverageTemperature
     UpdateNumber = 25
 in
     {System.printInfo 'Collecting updates from weather server...'}
-    {Subscriber set(subscribe:ZipCode#' ')}
 
     % Process 100 updates
     TotalTemperature = for  sum:Add  I in 1..UpdateNumber do

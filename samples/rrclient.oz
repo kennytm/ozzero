@@ -12,7 +12,7 @@ define
     Context = {ZeroMQ.init}
 
     % Socket to talk to server
-    Requester = {Context connectSocket(req 'tcp://localhost:5559' $)}
+    Requester = {Context connect(req('tcp://localhost:5559') $)}
 
 in
     for I in 1..10 do

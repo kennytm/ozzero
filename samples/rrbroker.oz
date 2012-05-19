@@ -8,8 +8,8 @@ import
 define
     % Prepare our context and sockets
     Context = {ZeroMQ.init}
-    Frontend = {Context bindSocket(router 'tcp://*:5559' $)}
-    Backend = {Context bindSocket(dealer 'tcp://*:5560' $)}
+    Frontend = {Context bind(router('tcp://*:5559') $)}
+    Backend = {Context bind(dealer('tcp://*:5560') $)}
 
     % Switch messages between sockets
     fun {MessageForwarder Source Target}

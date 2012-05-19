@@ -23,10 +23,10 @@ define
     Context = {ZeroMQ.init}
 
     % Socket to send messages on
-    Sender = {Context bindSocket(push 'tcp://*:5557' $)}
+    Sender = {Context bind(push('tcp://*:5557') $)}
 
     % Socket to send start of batch message on
-    Sink = {Context connectSocket(push 'tcp://localhost:5558' $)}
+    Sink = {Context connect(push('tcp://localhost:5558') $)}
 
     TotalMsec
 in

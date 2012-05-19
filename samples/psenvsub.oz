@@ -9,7 +9,7 @@ import
 define
     % Prepare our context and subscriber
     Context = {ZeroMQ.init}
-    Subscriber = {Context connectSocket(sub 'tcp://localhost:5563' $)}
+    Subscriber = {Context connect(sub('tcp://localhost:5563' subscribe:'B') $)}
 
     proc {SubscriberLoop}
         Address  Contents
@@ -20,7 +20,6 @@ define
     end
 
 in
-    {Subscriber set(subscribe:'B')}
     {SubscriberLoop}
 
     % We never get here but clean up anyhow

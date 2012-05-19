@@ -13,14 +13,12 @@ define
     Context = {ZeroMQ.init}
 
     % Socket to talk to clients
-    Publisher = {Context socket(pub $)}
+    Publisher = {Context socket(pub('tcp://*:5561') $)}
 
     % Socket to receive signals
-    Syncservice = {Context bindSocket(rep 'tcp://*:5562' $)}
+    Syncservice = {Context bind(rep('tcp://*:5562') $)}
 
 in
-    {Publisher bind('tcp://*:5561')}
-
     % Get synchronization from subscribers
     {System.showInfo 'Waiting for subscribers'}
 
@@ -31,7 +29,7 @@ in
         {Syncservice send(nil)}
     end
 
-    % Now broadcast exactly 1M updates followed by END
+    % Now broadcast exactly 0.5M updates followed by END
     {System.showInfo 'Broadcasting messages'}
     for I in 1..500000 do
         {Publisher send(I)}

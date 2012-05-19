@@ -11,10 +11,10 @@ define
     Context = {ZeroMQ.init}
 
     % Socket to receive messages on
-    Receiver = {Context bindSocket(pull 'tcp://*:5558' $)}
+    Receiver = {Context bind(pull('tcp://*:5558') $)}
 
     % Socket for worker control
-    Controller = {Context bindSocket(pub 'tcp://*:5559' $)}
+    Controller = {Context bind(pub('tcp://*:5559') $)}
 
     StartTime EndTime
 

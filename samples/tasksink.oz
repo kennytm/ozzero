@@ -11,7 +11,7 @@ import
 define
     % Prepare our context and socket
     Context = {ZeroMQ.init}
-    Receiver = {Context bindSocket(pull 'tcp://*:5558' $)}
+    Receiver = {Context bind(pull('tcp://*:5558') $)}
     StartTime  EndTime
 in
     % Wait for start of batch
