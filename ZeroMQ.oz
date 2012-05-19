@@ -155,7 +155,11 @@ define
             Options = if SndMore then sndmore else nil end
         in
             {LoopProcUntilFalse fun {$}
-                {ZN.msgSend NativeMessage self.NativeSocket Options _}
+                Completed  Interrupted
+            in
+                Interrupted = {ZN.msgSend NativeMessage self.NativeSocket
+                                          dontwait|Options Completed}
+                Interrupted orelse {Not Completed}
             end}
             {ZN.msgClose NativeMessage}
         end
@@ -166,7 +170,11 @@ define
         in
             {ZN.msgInit NativeMessage}
             {LoopProcUntilFalse fun {$}
-                {ZN.msgRecv NativeMessage self.NativeSocket nil _}
+                Completed  Interrupted
+            in
+                Interrupted = {ZN.msgRecv NativeMessage self.NativeSocket
+                                          dontwait Completed}
+                Interrupted orelse {Not Completed}
             end}
             BS = {ZN.msgData NativeMessage}
             {ZN.msgClose NativeMessage}
