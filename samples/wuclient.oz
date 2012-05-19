@@ -9,34 +9,55 @@ import
     System
 
 define
+    fun {ArgParser L}
+        case L
+        of nil then
+            5556#10001
+        [] H|T then
+            DefP DefZ
+        in
+            DefP#DefZ = {ArgParser T}
+            case H
+            of port#P then P#DefZ
+            [] zipcode#Z then DefP#Z
+            else DefP#DefZ
+            end
+        end
+    end
+
+    Port#ZipCode = {ArgParser {Application.getArgs list(
+        port(char:&p  type:int(min:1 max:65535))
+        zipcode(char:&z  type:int)
+    )}}
+
+    % Connect to :5556 or maybe other ports
+
+
     % Socket to talk to server
     Context = {ZeroMQ.init}
-    Subscriber = {Context connectSocket(sub 'tcp://localhost:5556' $)}
+    Subscriber = {Context connectSocket(sub 'tcp://localhost:'#Port $)}
 
-    Args = {Application.getArgs plain}
-    Filter = {CondSelect Args 1 '10001 '}
 
     TotalTemperature
     AverageTemperature
     UpdateNumber = 25
 in
-    {System.showInfo 'Collecting updates from weather server...'}
-    {Subscriber set(subscribe:Filter)}
-
-    {System.showInfo 'Filter = '#Filter}
+    {System.printInfo 'Collecting updates from weather server...'}
+    {Subscriber set(subscribe:ZipCode#' ')}
 
     % Process 100 updates
     TotalTemperature = for  sum:Add  I in 1..UpdateNumber do
         BS = {Subscriber recv($)}
         [_ Temperature _] = {String.tokens {ByteString.toString BS} (& )}
     in
-        {System.showInfo 'Temperature = '#Temperature}
         {Add {StringToInt Temperature}}
+        {System.printInfo '.'}
     end
 
     AverageTemperature = {IntToFloat TotalTemperature} / {IntToFloat UpdateNumber}
+    {System.showInfo nil}
     {System.showInfo
-        "Average temperature for zipcode '"#Filter#"' was "#AverageTemperature}
+        "Average temperature for zipcode '"#ZipCode#"' was "#AverageTemperature}
 
     {Subscriber close}
     {Context close}
