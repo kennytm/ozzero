@@ -222,6 +222,7 @@ struct AtomDecoder
         sockopt_map.insert(std::make_pair("recoveryIvlMsec", ZMQ_RECOVERY_IVL));
         sockopt_map.insert(std::make_pair("ipv4only", ZMQ_IPV4ONLY));
         sockopt_map.insert(std::make_pair("multicastHops", ZMQ_MULTICAST_HOPS));
+        sockopt_map.insert(std::make_pair("maxmsgsize", ZMQ_MAXMSGSIZE));
     #if ZMQ_VERSION >= 30101
         sockopt_map.insert(std::make_pair("lastEndpoint", ZMQ_LAST_ENDPOINT));
         sockopt_map.insert(std::make_pair("failUnroutable", ZMQ_FAIL_UNROUTABLE));
@@ -256,7 +257,6 @@ struct AtomDecoder
         sockopt_map.insert(std::make_pair("reconnectIvl", ZMQ_RECOVERY_IVL));
         sockopt_map.insert(std::make_pair("backlog", ZMQ_BACKLOG));
         sockopt_map.insert(std::make_pair("reconnectIvlMax", ZMQ_RECONNECT_IVL_MAX));
-        sockopt_map.insert(std::make_pair("maxmsgsize", ZMQ_MAXMSGSIZE));
         sockopt_map.insert(std::make_pair("rcvtimeo", ZMQ_RCVTIMEO));
         sockopt_map.insert(std::make_pair("sndtimeo", ZMQ_SNDTIMEO));
 
@@ -574,6 +574,7 @@ private:
 
     Message(zmq_msg_t* src, bool by_copy) : _closed(false)
     {
+        zmq_msg_init(&_obj);
         int rc = by_copy ? zmq_msg_copy(&_obj, src) : zmq_msg_move(&_obj, src);
         if (rc == 0)
             return;
@@ -583,11 +584,13 @@ private:
     }
 
 public:
-    virtual OZ_Extension* gCollectV() { return new Message(&_obj, /*by_copy*/false); }
+    virtual OZ_Extension* gCollectV() { _closed = true; return new Message(&_obj, /*by_copy*/false); }
     virtual OZ_Extension* sCloneV() { return new Message(&_obj, /*by_copy*/true); }
     // ^ should we allow this? Or do an Assert(0)?
 
     Message() : _closed(true) {}
+
+    ~Message() { close(); }
 
     int close()
     {
