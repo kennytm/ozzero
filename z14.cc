@@ -197,6 +197,7 @@ struct AtomDecoder
     std::tr1::unordered_map<std::string, int> send_recv_flags_map;
     std::tr1::unordered_map<std::string, short> poll_events_map;
     std::tr1::unordered_map<std::string, int> device_type_map;
+    std::tr1::unordered_map<std::string, int> events_map;
 
     AtomDecoder()
     {
@@ -231,7 +232,6 @@ struct AtomDecoder
         sockopt_map.insert(std::make_pair("tcpKeepaliveIdle", ZMQ_TCP_KEEPALIVE_IDLE));
         sockopt_map.insert(std::make_pair("tcpKeepaliveIntvl", ZMQ_TCP_KEEPALIVE_INTVL));
         sockopt_map.insert(std::make_pair("tcpAcceptFilter", ZMQ_TCP_ACCEPT_FILTER));
-        sockopt_map.insert(std::make_pair("monitor", ZMQ_MONITOR));
     #endif
     #else
         sockopt_map.insert(std::make_pair("sndhwm", ZMQ_HWM));
@@ -285,6 +285,19 @@ struct AtomDecoder
         device_type_map.insert(std::make_pair("queue", ZMQ_QUEUE));
         device_type_map.insert(std::make_pair("forwarder", ZMQ_FORWARDER));
         device_type_map.insert(std::make_pair("streamer", ZMQ_STREAMER));
+
+    #if ZMQ_VERSION >= 30101
+        events_map.insert(std::make_pair("connected", ZMQ_EVENT_CONNECTED));
+        events_map.insert(std::make_pair("connectDelayed", ZMQ_EVENT_CONNECT_DELAYED));
+        events_map.insert(std::make_pair("connectRetried", ZMQ_EVENT_CONNECT_RETRIED));
+        events_map.insert(std::make_pair("listening", ZMQ_EVENT_LISTENING));
+        events_map.insert(std::make_pair("bindFailed", ZMQ_EVENT_BIND_FAILED));
+        events_map.insert(std::make_pair("accepted", ZMQ_EVENT_ACCEPTED));
+        events_map.insert(std::make_pair("acceptFailed", ZMQ_EVENT_ACCEPT_FAILED));
+        events_map.insert(std::make_pair("closed", ZMQ_EVENT_CLOSED));
+        events_map.insert(std::make_pair("closeFailed", ZMQ_EVENT_CLOSE_FAILED));
+        events_map.insert(std::make_pair("disconnected", ZMQ_EVENT_DISCONNECTED));
+    #endif
     }
 };
 
