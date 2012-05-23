@@ -13,7 +13,7 @@ define
     Context = {ZeroMQ.init}
 
     % Socket to talk to clients
-    Publisher = {Context bind(pub('tcp://*:5561') $)}
+    Publisher = {Context bind(pub('tcp://*:5561' sndhwm:400002) $)}
 
     % Socket to receive signals
     Syncservice = {Context bind(rep('tcp://*:5562') $)}
