@@ -16,6 +16,8 @@ makefile(
           'mtrelay.exe'
           'syncpub.exe' 'syncsub.exe'
           'psenvpub.exe' 'psenvsub.exe'
+          'durapub.exe' 'durasub.exe'
+          'identity.exe'
           ]
 )
 
