@@ -282,9 +282,11 @@ struct AtomDecoder
         poll_events_map.insert(std::make_pair("pollout", ZMQ_POLLOUT));
         poll_events_map.insert(std::make_pair("pollerr", ZMQ_POLLERR));
 
+    #if ZMQ_VERSION < 30000 || ZMQ_VERSION >= 30101
         device_type_map.insert(std::make_pair("queue", ZMQ_QUEUE));
         device_type_map.insert(std::make_pair("forwarder", ZMQ_FORWARDER));
         device_type_map.insert(std::make_pair("streamer", ZMQ_STREAMER));
+    #endif
 
     #if ZMQ_VERSION >= 30101
         events_map.insert(std::make_pair("connected", ZMQ_EVENT_CONNECTED));
@@ -1014,6 +1016,10 @@ OZ_BI_end
 /** {ZN.device +DeviceA +FrontendSocket +BackendSocket ?Interrupted} */
 OZ_BI_define(ozzero_device, 3, 1)
 {
+#if ZMQ_VERSION >= 30000 && ZMQ_VERSION < 30101
+    OZ_error("To use zmq_device, please recompile with ZeroMQ v2.x, or v3.1.1 or above.");
+    return OZ_FAILED;
+#else
     OZ_declareAndDecode(g_atom_decoder.device_type_map, "device type", 0, device);
     OZ_declare(Socket, 1, frontend);
     ENSURE_VALID(Socket, frontend);
@@ -1027,6 +1033,7 @@ OZ_BI_define(ozzero_device, 3, 1)
         return raise_error();
     else
         OZ_RETURN(is_eintr ? OZ_true() : OZ_false());
+#endif
 }
 OZ_BI_end
 
