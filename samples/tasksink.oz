@@ -11,11 +11,11 @@ import
 define
     % Prepare our context and socket
     Context = {ZeroMQ.init}
-    Receiver = {Context bind(pull('tcp://*:5558') $)}
+    Receiver = {Context.bind pull('tcp://*:5558')}
     StartTime  EndTime
 in
     % Wait for start of batch
-    {Receiver recv(_)}
+    {Receiver.recv _}
 
     % Start our clock now
     % TODO: Millisecond precision?
@@ -25,7 +25,7 @@ in
     for TaskNbr in 1..100 do
 	Indicator = if TaskNbr mod 10 == 0 then ':' else '.' end
     in
-	{Receiver recv(_)}
+	{Receiver.recv _}
 	{System.printInfo Indicator}
     end
 
@@ -33,8 +33,8 @@ in
     EndTime = {Time.time}
     {System.showInfo 'Total elapsed time: '#(EndTime-StartTime)#' sec'}
 
-    {Receiver close}
-    {Context close}
+    {Receiver.close}
+    {Context.close}
     {Application.exit 0}
 end
 

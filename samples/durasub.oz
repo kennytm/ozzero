@@ -10,16 +10,15 @@ define
     Context = {ZeroMQ.init}
 
     % Connect our subscriber socket
-    Subscriber = {Context connect(sub(
-                            'tcp://localhost:5565'
-                            identity: 'Hello'
-                            subscribe: nil
-                          ) $)}
+    Subscriber = {Context.connect sub('tcp://localhost:5565'
+                                      identity: 'Hello'
+                                      subscribe: nil
+                                      )}
 
-    Sync = {Context connect(push('tcp://localhost:5564') $)}
+    Sync = {Context.connect push('tcp://localhost:5564')}
 
     proc {SubscriberLoop}
-        Str = {ByteString.toString {Subscriber recv($)}}
+        Str = {ByteString.toString {Subscriber.recv}}
     in
         {System.showInfo Str}
         if Str \= "END" then
@@ -33,13 +32,13 @@ in
     end
 
     % Synchronize with publisher
-    {Sync send(nil)}
+    {Sync.send nil}
 
     % Get updates, exit when told to do so
     {SubscriberLoop}
 
-    {Sync close}
-    {Subscriber close}
-    {Context close}
+    {Sync.close}
+    {Subscriber.close}
+    {Context.close}
     {Application.exit 0}
 end

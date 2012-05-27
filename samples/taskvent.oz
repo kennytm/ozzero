@@ -23,10 +23,10 @@ define
     Context = {ZeroMQ.init}
 
     % Socket to send messages on
-    Sender = {Context bind(push('tcp://*:5557') $)}
+    Sender = {Context.bind push('tcp://*:5557')}
 
     % Socket to send start of batch message on
-    Sink = {Context connect(push('tcp://localhost:5558') $)}
+    Sink = {Context.connect push('tcp://localhost:5558')}
 
     TotalMsec
 in
@@ -35,7 +35,7 @@ in
     {System.showInfo 'Sending tasks to workers...'}
 
     % The first message is "0" and signals start of batch
-    {Sink send('0')}
+    {Sink.send '0'}
 
     % Initialize random number generator
     {Random.seed}
@@ -45,15 +45,15 @@ in
         WorkLoad = {Random.uniformBetween 1 100}
     in
         {TotalMsecAccum WorkLoad}
-        {Sender send(WorkLoad)}
+        {Sender.send WorkLoad}
     end
 
     {System.showInfo 'Total expected cost: '#TotalMsec#' msec'}
     {Delay 1000}    % Give 0MQ time to deliver
 
-    {Sender close}
-    {Sink close}
-    {Context close}
+    {Sender.close}
+    {Sink.close}
+    {Context.close}
     {Application.exit 0}
 end
 

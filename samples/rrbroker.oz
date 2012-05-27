@@ -8,13 +8,13 @@ import
 define
     % Prepare our context and sockets
     Context = {ZeroMQ.init}
-    Frontend = {Context bind(router('tcp://*:5559') $)}
-    Backend = {Context bind(dealer('tcp://*:5560') $)}
+    Frontend = {Context.bind router('tcp://*:5559')}
+    Backend = {Context.bind dealer('tcp://*:5560')}
 
     % Switch messages between sockets
     fun {MessageForwarder Source Target}
         proc {$ _ _}
-            {Target sendMulti({Source recvMulti($)})}
+            {Target.sendMulti {Source.recvMulti}}
         end
     end
 
@@ -29,9 +29,9 @@ in
     end
 
     % We never get here but clean up anyhow
-    {Frontend close}
-    {Backend close}
-    {Context close}
+    {Frontend.close}
+    {Backend.close}
+    {Context.close}
     {Application.exit 0}
 end
 

@@ -32,7 +32,6 @@ import
 
 export
     version: Version
-    context: Context
     init: Init
     poll: Poll
     device: Device
@@ -42,9 +41,6 @@ define
     RegisterSocket = {Finalize.guardian ZN.close}
 
     Version = {ZN.version}
-
-    InternalInit = {NewName}
-    NativeSocket = {NewName}
 
     fun {SelectType V2Type V3Type}
         if Version.major >= 3 then
@@ -108,206 +104,214 @@ define
         tcpKeepaliveCnt: int
         tcpKeepaliveIntvl: int
         tcpAcceptFilter: 255    % this can be arbitrarily long...
-        % 'monitor' is not supported yet.
     )
 
-    % Wrapper of a ZeroMQ socket
-    class Socket
-        feat
-            !NativeSocket
+    %---------------------------------------------------------------------------
 
-        meth !InternalInit(NativeContext Type)
-            self.NativeSocket = {ZN.socket NativeContext Type}
-            {RegisterSocket self.NativeSocket}
-        end
-
-        % close this socket
-        meth close
-            {ZN.close self.NativeSocket}
-        end
-
-        % set socket options
-        meth set(...) = M
-            {Record.forAllInd M proc {$ I A}
-                OptType = SockOptTypes.I
-                Value = if {IsInt OptType} then {ByteString.make A} else A end
-            in
-                {LoopProcUntilFalse fun {$}
-                    {ZN.setsockopt self.NativeSocket I OptType Value}
-                end}
-            end}
-        end
-
-        % get socket options
-        meth get(...) = M
-            {Record.forAllInd M fun {$ I}
-                {LoopFuncUntilFalse fun {$ Res}
-                    Res = {ZN.getsockopt self.NativeSocket I SockOptTypes.I}
-                    Res == unit
-                end}
-            end}
-        end
-
-        % send a virtual string or byte string
-        meth send(VS  more:SndMore<=false)
-            BS = if {IsByteString VS} then VS else {ByteString.make VS} end
-            NativeMessage = {ZN.msgCreateWithData {ByteString.make BS}}
-            Options = if SndMore then sndmore else nil end
+    proc {SendMore NativeSocket VS SndMore}
+        BS = if {IsByteString VS} then VS else {ByteString.make VS} end
+        NativeMessage = {ZN.msgCreateWithData {ByteString.make BS}}
+        Options = if SndMore then [dontwait sndmore] else [dontwait] end
+    in
+        {LoopProcUntilFalse fun {$}
+            Completed  Interrupted
         in
-            {LoopProcUntilFalse fun {$}
-                Completed  Interrupted
-            in
-                Interrupted = {ZN.msgSend NativeMessage self.NativeSocket
-                                          dontwait|Options Completed}
-                Interrupted orelse {Not Completed}
-            end}
-            {ZN.msgClose NativeMessage}
-        end
+            Interrupted = {ZN.msgSend NativeMessage NativeSocket Options Completed}
+            Interrupted orelse {Not Completed}
+        end}
+        {ZN.msgClose NativeMessage}
+    end
 
-        % receive a byte string
-        meth recv(?BS  more:?RcvMore<=false)
-            NativeMessage = {ZN.msgCreate}
+    proc {RecvMore NativeSocket ?BS ?RcvMore}
+        NativeMessage = {ZN.msgCreate}
+    in
+        {ZN.msgInit NativeMessage}
+        {LoopProcUntilFalse fun {$}
+            Completed  Interrupted
         in
-            {ZN.msgInit NativeMessage}
-            {LoopProcUntilFalse fun {$}
-                Completed  Interrupted
-            in
-                Interrupted = {ZN.msgRecv NativeMessage self.NativeSocket
-                                          dontwait Completed}
-                Interrupted orelse {Not Completed}
-            end}
-            BS = {ZN.msgData NativeMessage}
-            {ZN.msgClose NativeMessage}
-            if {Not {IsDet RcvMore}} then
-                RcvMore = {self get(rcvmore:$)} \= 0
+            Interrupted = {ZN.msgRecv NativeMessage NativeSocket dontwait Completed}
+            Interrupted orelse {Not Completed}
+        end}
+        BS = {ZN.msgData NativeMessage}
+        {ZN.msgClose NativeMessage}
+        if {Not {IsDet RcvMore}} then
+            RcvMore = {ZN.getsockopt NativeSocket rcvmore SockOptTypes.rcvmore} \= 0
+        end
+    end
+
+    proc {SendMulti NativeSocket VSL}
+        case VSL
+        of H|T then
+            HasMore = T \= nil
+        in
+            {SendMore NativeSocket H HasMore}
+            if HasMore then
+                {SendMulti NativeSocket T}
             end
         end
+    end
 
-        % send a multipart message
-        meth sendMulti(VSL)
-            case VSL
-            of H|nil then
-                {self send(H)}
-            [] H|T then
-                {self send(H  more:true)}
-                {self sendMulti(T)}
-            end
-        end
+    fun {RecvMulti NativeSocket}
+        BS  RcvMore  Tail
+    in
+        {RecvMore NativeSocket BS RcvMore}
+        Tail = if RcvMore then {RecvMulti NativeSocket} else nil end
+        BS|Tail
+    end
 
-        % receive a multipart message
-        meth recvMulti($)
-            BS  More  Tail
-        in
-            {self recv(BS  more:More)}
-            Tail = if More then {self recvMulti($)} else nil end
-            BS|Tail
+    fun {ConnectOrBindSocket NativeContext Method M}
+        Type = {Label M}
+        AddrVSL = M.1
+        Socket = {MakeSocket NativeContext Type}
+    in
+        {Record.forAllInd {Record.subtract M 1} Socket.set}
+        if {IsVirtualString AddrVSL} then
+            {Socket.Method AddrVSL}
+        else
+            {ForAll AddrVSL Socket.Method}
         end
-
-        % receive a byte string without waiting. If there is no messages yet,
-        % returns 'unit'.
-        meth recvDontWait(?MaybeBS)
-            NativeMessage = {ZN.msgCreate}
-            Completed
-        in
-            {ZN.msgInit NativeMessage}
-            Completed = {LoopFuncUntilFalse fun {$ R}
-                {ZN.msgRecv NativeMessage self.NativeSocket [dontwait] R}
-            end}
-            MaybeBS = if Completed then {ZN.msgData NativeMessage} else unit end
-            {ZN.msgClose NativeMessage}
-        end
-
-        % bind to an address
-        meth bind(VS)
-            {ZN.bind self.NativeSocket VS}
-        end
-
-        % connect to an address
-        meth connect(VS)
-            {ZN.connect self.NativeSocket VS}
-        end
-
-        % unbind from an address
-        meth unbind(VS)
-            {ZN.unbind self.NativeSocket VS}
-        end
-
-        % disconnect from an address
-        meth disconnect(VS)
-            {ZN.disconnect self.NativeSocket VS}
-        end
+        Socket
     end
 
     %---------------------------------------------------------------------------
 
-    % Wrapper of a ZeroMQ context
-    class Context
-        feat
-            NativeContext
+    % Wrapper of a ZeroMQ socket
+    fun {MakeSocket NativeContext Type}
+        NativeSocket = {ZN.socket NativeContext Type}
+    in
+        {RegisterSocket NativeSocket}
 
-        % Initialize a context
-        meth init(iothreads: IoThreads <= 1)
-            self.NativeContext = {ZN.ctxNew IoThreads}
-            {RegisterContext self.NativeContext}
-        end
+        zmqSocket(
+            NativeSocket
 
-        % Create a socket
-        meth socket(Type $)
-            {New Socket InternalInit(self.NativeContext Type)}
-        end
-
-        meth ConnectOrBindSocket(Method M $)
-            Type = {Label M}
-            AddrVSL = M.1
-            Socket = {self socket(Type $)}
-            SetOptions = {Adjoin {Record.subtract M 1} set()}
-        in
-            {Socket SetOptions}
-            if {IsVirtualString AddrVSL} then
-                {Socket Method(AddrVSL)}
-            else
-                for AddrVS in AddrVSL do
-                    {Socket Method(AddrVS)}
-                end
+            % close this socket
+            close: proc {$}
+                {ZN.close NativeSocket}
             end
-            Socket
-        end
 
-        % Create a socket and bind many addresses to it.
-        meth bind(M $)
-            {self ConnectOrBindSocket(bind M $)}
-        end
+            % set a socket option
+            set: proc {$ OptName Value}
+                OptType = SockOptTypes.OptName
+                RealValue = if {IsInt OptType} then
+                    {ByteString.make Value}
+                else
+                    Value
+                end
+            in
+                {LoopProcUntilFalse fun {$}
+                    {ZN.setsockopt NativeSocket OptName OptType RealValue}
+                end}
+            end
 
-        % Create a socket and connect it to many addresses.
-        meth connect(M $)
-            {self ConnectOrBindSocket(connect M $)}
-        end
+            % get a socket option
+            get: fun {$ OptName}
+                {LoopFuncUntilFalse fun {$ Res}
+                    Res = {ZN.getsockopt NativeSocket OptName SockOptTypes.OptName}
+                    Res == unit
+                end}
+            end
 
-        % Terminate the context
-        meth close
-            {LoopProcUntilFalse fun {$}
-                {ZN.ctxDestroy self.NativeContext}
-            end}
-        end
+            % send a virtual string or byte string
+            send: proc {$ VS}
+                {SendMore NativeSocket VS false}
+            end
 
-        % Assign options to the context. (Call this before 'socket')
-        meth set(...) = M
-            {Record.forAllInd M proc {$ I A}
-                {ZN.ctxSet self.NativeContext I A}
-            end}
-        end
+            % receive a byte string
+            recv: fun {$}
+                {RecvMore NativeSocket $ _}
+            end
 
-        % Get options from the context.
-        meth get(...) = M
-            {Record.forAllInd M fun {$ I}
-                {ZN.ctxGet self.NativeContext I}
-            end}
-        end
+            % send a multipart message
+            sendMulti: proc {$ VSL}
+                {SendMulti NativeSocket VSL}
+            end
+
+            % receive a multipart message
+            recvMulti: fun {$}
+                {RecvMulti NativeSocket}
+            end
+
+            % receive a byte string without waiting. If there is no messages yet,
+            % returns 'unit'.
+            recvDontWait: fun {$}
+                NativeMessage = {ZN.msgCreate}
+                MaybeBS  Completed
+            in
+                {ZN.msgInit NativeMessage}
+                Completed = {LoopFuncUntilFalse fun {$ R}
+                    {ZN.msgRecv NativeMessage NativeSocket [dontwait] R}
+                end}
+                MaybeBS = if Completed then {ZN.msgData NativeMessage} else unit end
+                {ZN.msgClose NativeMessage}
+                MaybeBS
+            end
+
+            % bind to an address
+            bind: proc {$ VS}
+                {ZN.bind NativeSocket VS}
+            end
+
+            % connect to an address
+            connect: proc {$ VS}
+                {ZN.connect NativeSocket VS}
+            end
+
+            % unbind from an address
+            unbind: proc {$ VS}
+                {ZN.unbind NativeSocket VS}
+            end
+
+            % disconnect from an address
+            disconnect: proc {$ VS}
+                {ZN.connect NativeSocket VS}
+            end
+        )
+    end
+
+    % Wrapper of a ZeroMQ context
+    fun {MakeContext IoThreads}
+        NativeContext = {ZN.ctxNew IoThreads}
+    in
+        {RegisterContext NativeContext}
+
+        zmqContext(
+            % Create a socket
+            socket: fun {$ Type}
+                {MakeSocket NativeContext Type}
+            end
+
+            % Create a socket and bind many addresses to it.
+            bind: fun {$ M}
+                {ConnectOrBindSocket NativeContext bind M}
+            end
+
+            % Create a socket and connect it to many addresses.
+            connect: fun {$ M}
+                {ConnectOrBindSocket NativeContext connect M}
+            end
+
+            % Terminate the context
+            close: proc {$}
+                {LoopProcUntilFalse fun {$}
+                    {ZN.ctxDestroy NativeContext}
+                end}
+            end
+
+            % Assign option to the context. (Call this before 'socket')
+            set: proc {$ OptName Value}
+                {ZN.ctxSet NativeContext OptName Value}
+            end
+
+            % Get options from the context
+            get: fun {$ OptName}
+                {ZN.ctxGet NativeContext OptName}
+            end
+        )
     end
 
     % Obtain a default ZeroMQ context
     fun {Init}
-        {New Context init}
+        {MakeContext 1}
     end
 
     /*
@@ -329,7 +333,7 @@ define
 
         fun {ToNative SocketSpec}
             Socket = SocketSpec.socket
-            NSocket = Socket.NativeSocket
+            NSocket = Socket.1
         in
             '#'(NSocket SocketSpec.events Socket#SocketSpec.action)
         end
@@ -379,7 +383,7 @@ define
 
     proc {Device DeviceA FrontendSocket BackendSocket}
         {LoopProcUntilFalse fun {$}
-            {ZN.device DeviceA FrontendSocket.NativeSocket BackendSocket.NativeSocket}
+            {ZN.device DeviceA FrontendSocket.1 BackendSocket.1}
         end}
     end
 end

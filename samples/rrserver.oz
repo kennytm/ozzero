@@ -12,17 +12,17 @@ define
     Context = {ZeroMQ.init}
 
     % Socket to talk to clients
-    Responder = {Context connect(rep('tcp://localhost:5560') $)}
+    Responder = {Context.connect rep('tcp://localhost:5560')}
 
     proc {ServerLoop}
         % Wait for next request from client
-        Str = {Responder recv($)}
+        Str = {Responder.recv}
     in
         {System.showInfo 'Received request: ['#Str#']'}
         % Do some 'work'
         {Delay 1000}
         % Send reply back to client
-        {Responder send('World')}
+        {Responder.send 'World'}
 
         {ServerLoop}
     end
@@ -31,8 +31,8 @@ in
     {ServerLoop}
 
     % We never get here but clean up anyhow
-    {Responder close}
-    {Context close}
+    {Responder.close}
+    {Context.close}
     {Application.exit 0}
 end
 

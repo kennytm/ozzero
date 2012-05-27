@@ -13,14 +13,14 @@ define
     PID = {OS.getPID}
 
     % First, connect our subscriber socket
-    Subscriber = {Context connect(sub('tcp://localhost:5561' subscribe:nil) $)}
+    Subscriber = {Context.connect sub('tcp://localhost:5561' subscribe:nil)}
     Syncclient
 
     MessageCount = {NewCell 0}
     LastMessage = {NewCell nil}
 
     proc {SubscriberLoop}
-        Message = {Subscriber recv($)}
+        Message = {Subscriber.recv}
     in
         MessageCount := @MessageCount + 1
         LastMessage := Message
@@ -36,13 +36,13 @@ in
     {Delay 1000}
 
     % Second, synchronize with publisher
-    Syncclient = {Context connect(req('tcp://localhost:5562') $)}
+    Syncclient = {Context.connect req('tcp://localhost:5562')}
 
     % - send a synchronization request
-    {Syncclient send(nil)}
+    {Syncclient.send nil}
     {System.showInfo PID#' is ready.'}
     % - wait for synchronization reply
-    {Syncclient recv(_)}
+    {Syncclient.recv _}
 
     % Third, get our updates and report how many we got
     thread
@@ -60,9 +60,9 @@ in
     end
     {SubscriberLoop}
 
-    {Subscriber close}
-    {Syncclient close}
-    {Context close}
+    {Subscriber.close}
+    {Syncclient.close}
+    {Context.close}
     {Application.exit 0}
 end
 

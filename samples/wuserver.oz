@@ -11,7 +11,7 @@ import
 define
     % Prepare our context and publisher
     Context = {ZeroMQ.init}
-    Publisher = {Context bind(pub(['tcp://*:5556' 'ipc://weather.ipc']) $)}
+    Publisher = {Context.bind pub(['tcp://*:5556' 'ipc://weather.ipc'])}
 
     proc {PublisherLoop}
         % Get values that will fool the boss
@@ -21,7 +21,7 @@ define
         Message = ZipCode#' '#Temperature#' '#RelHumidity
     in
         % Send message to all subscribers
-        {Publisher send(Message)}
+        {Publisher.send Message}
         {PublisherLoop}
     end
 in
@@ -29,8 +29,8 @@ in
     {Random.seed}
     {PublisherLoop}
 
-    {Publisher close}
-    {Context close}
+    {Publisher.close}
+    {Context.close}
     {Application.exit 0}
 end
 

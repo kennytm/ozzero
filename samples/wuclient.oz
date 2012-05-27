@@ -35,7 +35,7 @@ define
 
     % Socket to talk to server
     Context = {ZeroMQ.init}
-    Subscriber = {Context connect(sub('tcp://localhost:'#Port subscribe:ZipCode#' ') $)}
+    Subscriber = {Context.connect sub('tcp://localhost:'#Port subscribe:ZipCode#' ')}
 
     TotalTemperature
     AverageTemperature
@@ -45,7 +45,7 @@ in
 
     % Process 100 updates
     TotalTemperature = for  sum:Add  I in 1..UpdateNumber do
-        BS = {Subscriber recv($)}
+        BS = {Subscriber.recv}
         [_ Temperature _] = {String.tokens {ByteString.toString BS} (& )}
     in
         {Add {StringToInt Temperature}}
@@ -57,8 +57,8 @@ in
     {System.showInfo
         "Average temperature for zipcode '"#ZipCode#"' was "#AverageTemperature}
 
-    {Subscriber close}
-    {Context close}
+    {Subscriber.close}
+    {Context.close}
     {Application.exit 0}
 end
 

@@ -12,16 +12,16 @@ define
     Context = {ZeroMQ.init}
 
     % Connect to task ventilator
-    Receiver = {Context connect(pull('tcp://localhost:5557') $)}
+    Receiver = {Context.connect pull('tcp://localhost:5557')}
 
     % Connect to weather server
-    Subscriber = {Context connect(sub('tcp://localhost:5556' subscribe:'10001 ') $)}
+    Subscriber = {Context.connect sub('tcp://localhost:5556' subscribe:'10001 ')}
 
     % Process messages from both sockets
     % We prioritize traffic from the task ventilator
     proc {ProcessLoop}
 	proc {Process Socket SocketName}
-	    Message = {Socket recvDontWait($)}
+	    Message = {Socket.recvDontWait}
 	in
 	    if Message \= unit then
 		{System.showInfo 'Process '#SocketName#': '#Message}
@@ -45,7 +45,9 @@ in
     {ProcessLoop}
 
     % We never get here but clean up anyhow
-    {Context close}
+    {Receiver.close}
+    {Subscriber.close}
+    {Context.close}
     {Application.exit 0}
 end
 

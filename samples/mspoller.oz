@@ -11,15 +11,15 @@ define
     Context = {ZeroMQ.init}
 
     % Connect to task ventilator
-    Receiver = {Context connect(pull('tcp://localhost:5557') $)}
+    Receiver = {Context.connect pull('tcp://localhost:5557')}
 
     % Connect to weather server
-    Subscriber = {Context connect(sub('tcp://localhost:5556' subscribe:'10001 ') $)}
+    Subscriber = {Context.connect sub('tcp://localhost:5556' subscribe:'10001 ')}
 
     proc {ProcessLoop}
         fun {MakeAction SocketName}
             proc {$ Socket Events}
-                {System.showInfo 'Process '#SocketName#': '#{Socket recv($)}}
+                {System.showInfo 'Process '#SocketName#': '#{Socket.recv}}
             end
         end
     in
@@ -34,9 +34,9 @@ in
     {ProcessLoop}
 
     % We never get here
-    {Receiver close}
-    {Subscriber close}
-    {Context close}
+    {Receiver.close}
+    {Subscriber.close}
+    {Context.close}
     {Application.exit 0}
 end
 

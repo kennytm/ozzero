@@ -10,13 +10,13 @@ import
 define
     Context = {ZeroMQ.init}
 
-    Sink = {Context bind(router('inproc://example') $)}
+    Sink = {Context.bind router('inproc://example')}
 
     Anonymous  Identified
 
 
     proc {Dump Socket}
-        RawMessages = {Socket recvMulti($)}
+        RawMessages = {Socket.recvMulti}
     in
         {System.showInfo '----------------------------------------'}
         {ForAll {Map RawMessages ByteString.toString} proc {$ Message}
@@ -30,19 +30,19 @@ define
 
 in
     % First allow 0MQ to set the identity
-    Anonymous = {Context connect(req('inproc://example') $)}
-    {Anonymous send('ROUTER uses a generated UUID')}
+    Anonymous = {Context.connect req('inproc://example')}
+    {Anonymous.send 'ROUTER uses a generated UUID'}
     {Dump Sink}
 
     % Then set the identity ourself
-    Identified = {Context connect(req('inproc://example' identity:'Hello') $)}
-    {Identified send('ROUTER socket uses REQ\'s socket identity')}
+    Identified = {Context.connect req('inproc://example' identity:'Hello')}
+    {Identified.send 'ROUTER socket uses REQ\'s socket identity'}
     {Dump Sink}
 
-    {Sink close}
-    {Anonymous close}
-    {Identified close}
-    {Context close}
+    {Sink.close}
+    {Anonymous.close}
+    {Identified.close}
+    {Context.close}
     {Application.exit 0}
 end
 

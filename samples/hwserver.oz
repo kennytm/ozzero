@@ -10,23 +10,23 @@ import
 define
     % Prepare out context and socket
     Context = {ZeroMQ.init}
-    Socket = {Context bind(rep('tcp://*:5555') $)}
+    Socket = {Context.bind rep('tcp://*:5555')}
 
     proc {ServerLoop}
         % Wait for next request from client
-        {Socket recv(_)}
+        {Socket.recv _}
         % Do some 'work'
         {Delay 1000}
         % Send reply back to client
-        {Socket send('World')}
+        {Socket.send 'World'}
         % Loop again
         {ServerLoop}
     end
 in
     {ServerLoop}
 
-    {Socket close}
-    {Context close}
+    {Socket.close}
+    {Context.close}
 
     {Application.exit 0}
 end

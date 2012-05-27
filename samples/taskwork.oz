@@ -14,16 +14,16 @@ define
     Context = {ZeroMQ.init}
 
     % Socket to receive messages on
-    Receiver = {Context connect(pull('tcp://localhost:5557') $)}
+    Receiver = {Context.connect pull('tcp://localhost:5557')}
 
     % Socket to send messages to
-    Sender = {Context connect(push('tcp://localhost:5558') $)}
+    Sender = {Context.connect push('tcp://localhost:5558')}
 
     proc {WorkerLoop}
 	S  Msec
     in
 	% Simple progress indicator for the viewer
-	S = {Receiver recv($)}
+	S = {Receiver.recv}
 	Msec = {StringToInt {ByteString.toString S}}
 	{System.showInfo Msec#'.'}
 
@@ -31,7 +31,7 @@ define
 	{Delay Msec}
 
 	% Send results to sink
-	{Sender send(nil)}
+	{Sender.send nil}
 
 	% Process tasks forever
 	{WorkerLoop}
@@ -39,9 +39,9 @@ define
 in
     {WorkerLoop}
 
-    {Receiver close}
-    {Sender close}
-    {Context close}
+    {Receiver.close}
+    {Sender.close}
+    {Context.close}
     {Application.exit 0}
 end
 
